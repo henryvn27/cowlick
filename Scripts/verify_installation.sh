@@ -17,7 +17,7 @@ helper="$app_path/Contents/Helpers/notchrelay-hook"
 [[ -x "$helper" ]] || { print -u2 "Missing bundled helper: $helper"; exit 1; }
 plutil -lint "$app_path/Contents/Info.plist" >/dev/null
 codesign --verify --deep --strict "$app_path"
-"$helper" version | rg -q '^NotchRelay hook 1\.0\.0$'
+"$helper" version | grep -q '^NotchRelay hook 1\.0\.0$'
 
 if [[ -x "$HOME/.local/bin/notchrelay-hook" ]]; then
   diagnostics_file="$(mktemp "${TMPDIR%/}/notchrelay-diagnostics.XXXXXX")"
@@ -30,7 +30,7 @@ if [[ -x "$HOME/.local/bin/notchrelay-hook" ]]; then
 fi
 
 if ! $development; then
-  codesign -dv --verbose=4 "$app_path" 2>&1 | rg -q 'flags=.*runtime'
+  codesign -dv --verbose=4 "$app_path" 2>&1 | grep -q 'flags=.*runtime'
   spctl --assess --type execute --verbose=2 "$app_path"
 fi
 

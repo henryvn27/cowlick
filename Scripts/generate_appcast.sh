@@ -29,8 +29,8 @@ else
 fi
 appcast="$staging_directory/appcast.xml"
 [[ -f "$appcast" ]] || { print -u2 "Appcast was not generated"; exit 1; }
-rg -q 'sparkle:edSignature=' "$appcast" || { print -u2 "Update archive signature is missing"; exit 1; }
-rg -q '<!-- sparkle-signatures:' "$appcast" || { print -u2 "Signed-feed signature block is missing"; exit 1; }
+grep -q 'sparkle:edSignature=' "$appcast" || { print -u2 "Update archive signature is missing"; exit 1; }
+grep -q '<!-- sparkle-signatures:' "$appcast" || { print -u2 "Signed-feed signature block is missing"; exit 1; }
 if [[ -n "${SPARKLE_PRIVATE_KEY:-}" ]]; then
   print -r -- "$SPARKLE_PRIVATE_KEY" | "$sign_tool" --verify --ed-key-file - "$appcast"
 else
