@@ -1,13 +1,11 @@
 <p align="center"><img src="Assets/AppIcon/notchrelay-icon.svg" width="112" alt="NotchRelay icon"></p>
 <h1 align="center">NotchRelay</h1>
 <p align="center"><strong>Codex status and safe approval actions, right at the MacBook notch.</strong></p>
-<p align="center"><a href="https://github.com/henryvn27/notchrelay/releases/latest">Download</a> · <a href="docs/security.md">Security</a> · <a href="docs/privacy.md">Privacy</a> · <a href="docs/troubleshooting.md">Troubleshooting</a></p>
+<p align="center"><a href="#build-from-source">Build from source</a> · <a href="docs/security.md">Security</a> · <a href="docs/privacy.md">Privacy</a> · <a href="docs/troubleshooting.md">Troubleshooting</a></p>
 
 ![NotchRelay showing working, approval, and multi-session states](Assets/Screenshots/hero.png)
 
-```sh
-brew install --cask henryvn27/notchrelay/notchrelay
-```
+> **Release status:** the source is ready for public review. A signed and notarized v1.0.0 download and Homebrew cask are not available yet; they will be published only after the Apple release credentials and public artifacts pass the documented verification gates.
 
 NotchRelay is a native, local-first macOS companion for OpenAI Codex. It stays hidden while idle, shows active projects and completion near the notch, and lets you allow once or deny supported Codex permission requests without becoming a second Codex client.
 
@@ -21,19 +19,22 @@ NotchRelay is a native, local-first macOS companion for OpenAI Codex. It stays h
 - Optionally pulses the Caps Lock LED while preserving its original state.
 - Keeps prompt and result previews off by default.
 
-## Install
+## Availability
 
-### Homebrew
+There is currently no prebuilt public download. Do not use or redistribute development-signed builds as a public release.
+
+## Build from source
+
+Requirements: macOS 14+, Xcode 16 or newer, and XcodeGen.
 
 ```sh
-brew install --cask henryvn27/notchrelay/notchrelay
+git clone https://github.com/henryvn27/notchrelay.git
+cd notchrelay
+brew install xcodegen
+./Scripts/build_and_run.sh --verify
 ```
 
-### GitHub release
-
-Download the notarized DMG from [Releases](https://github.com/henryvn27/notchrelay/releases/latest), drag NotchRelay to Applications, and open it. Complete onboarding to detect Codex, safely merge the four lifecycle hooks, and run a local visual test.
-
-Normal installation requires no Xcode, Swift, Python, Node, npm, account, or cloud service.
+Contributor installation is available through `./Scripts/install_local.sh`. Once the public release gates pass, normal installation will require no Xcode, Swift, Python, Node, npm, account, or cloud service.
 
 ## Approval safety
 
@@ -57,16 +58,7 @@ See [architecture](docs/architecture.md) and the [bridge protocol](docs/protocol
 
 ## Development
 
-Requirements: macOS 14+, Xcode 16 or newer, and XcodeGen.
-
-```sh
-git clone https://github.com/henryvn27/notchrelay.git
-cd notchrelay
-brew install xcodegen
-./Scripts/build_and_run.sh --verify
-```
-
-The project-local Codex Run action uses the same command. Contributor installation is available through `./Scripts/install_local.sh`; normal users should use Homebrew or a release.
+The project-local Codex Run action uses the same build command. See [CONTRIBUTING.md](CONTRIBUTING.md) for code style, testing, and pull-request guidance.
 
 ## Contributing
 
