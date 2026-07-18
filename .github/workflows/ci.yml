@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate project
+        run: xcodegen generate
+      - name: Formatting
+        run: xcrun swift-format lint --recursive --strict NotchRelay NotchRelayHook NotchRelayTests NotchRelayUITests
+      - name: Unit tests
+        run: xcodebuild -project NotchRelay.xcodeproj -scheme NotchRelay-UnitTests -derivedDataPath DerivedData -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO test
+      - name: UI tests
+        run: xcodebuild -project NotchRelay.xcodeproj -scheme NotchRelay-UITests -derivedDataPath DerivedData -destination 'platform=macOS' test
+      - name: Static analysis
+        run: xcodebuild -project NotchRelay.xcodeproj -scheme NotchRelay -configuration Debug -derivedDataPath DerivedData -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO analyze
+      - name: Verify installer script
+        run: swiftc -typecheck Scripts/install_hooks.swift
+      - name: Build release candidate
+        run: xcodebuild -project NotchRelay.xcodeproj -scheme NotchRelay -configuration Release -derivedDataPath DerivedData -destination 'generic/platform=macOS' CODE_SIGN_IDENTITY=- build
+      - name: Upload app for main
+        if: github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: NotchRelay-unsigned-inspection
+          path: DerivedData/Build/Products/Release/NotchRelay.app
+          if-no-files-found: error
+          retention-days: 7
+
+  secret-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@dcedce43c6f43de0b836d1fe38946645c9c638dc
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

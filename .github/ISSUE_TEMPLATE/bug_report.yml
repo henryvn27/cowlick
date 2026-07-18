@@ -1,0 +1,48 @@
+name: Bug report
+description: Report a reproducible NotchRelay problem
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Do not paste private prompts, commands, tokens, or credentials. Use a private security advisory for vulnerabilities.
+  - type: input
+    id: version
+    attributes:
+      label: NotchRelay version
+    validations:
+      required: true
+  - type: input
+    id: macos
+    attributes:
+      label: macOS and Mac model
+    validations:
+      required: true
+  - type: dropdown
+    id: display
+    attributes:
+      label: Display setup
+      options:
+        - Built-in notched display
+        - Built-in non-notch display
+        - External display
+        - Multiple displays
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction steps
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected and actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Sanitized diagnostics
+      description: Review the exported report before sharing it.

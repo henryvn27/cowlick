@@ -1,0 +1,16 @@
+.DS_Store
+DerivedData/
+DerivedData-*/
+build/
+dist/
+.build/
+*.profraw
+*.xcuserstate
+xcuserdata/
+Config/Signing.local.xcconfig
+Config/Sparkle/private-key*
+*.p12
+*.cer
+*.provisionprofile
+*.dmg
+*.zip

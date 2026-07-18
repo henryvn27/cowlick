@@ -1,0 +1,133 @@
+name: NotchRelay
+options:
+  createIntermediateGroups: true
+  deploymentTarget:
+    macOS: "14.0"
+  minimumXcodeGenVersion: "2.44.0"
+packages:
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    exactVersion: 2.9.4
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    MACOSX_DEPLOYMENT_TARGET: "14.0"
+    CLANG_ENABLE_MODULES: YES
+    ENABLE_HARDENED_RUNTIME: YES
+    DEAD_CODE_STRIPPING: YES
+    ENABLE_APP_INTENTS_METADATA: NO
+    SWIFT_STRICT_CONCURRENCY: complete
+    VERSIONING_SYSTEM: apple-generic
+targets:
+  NotchRelay:
+    type: application
+    platform: macOS
+    sources:
+      - path: NotchRelay
+    entitlements:
+      path: Config/NotchRelay.entitlements
+    dependencies:
+      - package: Sparkle
+        product: Sparkle
+      - target: NotchRelayHook
+        embed: false
+        link: false
+    postBuildScripts:
+      - name: Embed NotchRelay Hook
+        script: |
+          set -euo pipefail
+          helper_dir="$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Helpers"
+          mkdir -p "$helper_dir"
+          cp "$BUILT_PRODUCTS_DIR/notchrelay-hook" "$helper_dir/notchrelay-hook"
+          chmod 755 "$helper_dir/notchrelay-hook"
+        outputFiles:
+          - $(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/Helpers/notchrelay-hook
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.henryvn27.NotchRelay
+        PRODUCT_NAME: NotchRelay
+        MARKETING_VERSION: 1.0.0
+        CURRENT_PROJECT_VERSION: 1
+        CODE_SIGN_STYLE: Automatic
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: Config/Info.plist
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.developer-tools
+  NotchRelayHook:
+    type: tool
+    platform: macOS
+    sources:
+      - path: NotchRelayHook
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.henryvn27.NotchRelay.Hook
+        PRODUCT_NAME: notchrelay-hook
+        PRODUCT_MODULE_NAME: NotchRelayHook
+        MARKETING_VERSION: 1.0.0
+        CURRENT_PROJECT_VERSION: 1
+        CODE_SIGN_STYLE: Automatic
+  NotchRelayTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: NotchRelayTests
+      - path: NotchRelayHook
+        excludes:
+          - main.swift
+    dependencies:
+      - target: NotchRelay
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.henryvn27.NotchRelayTests
+        GENERATE_INFOPLIST_FILE: YES
+  NotchRelayUITests:
+    type: bundle.ui-testing
+    platform: macOS
+    sources:
+      - path: NotchRelayUITests
+    dependencies:
+      - target: NotchRelay
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.henryvn27.NotchRelayUITests
+        GENERATE_INFOPLIST_FILE: YES
+schemes:
+  NotchRelay:
+    build:
+      targets:
+        NotchRelay: all
+        NotchRelayHook: all
+        NotchRelayTests: [test]
+        NotchRelayUITests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      gatherCoverageData: true
+      targets:
+        - NotchRelayTests
+        - NotchRelayUITests
+    archive:
+      config: Release
+  NotchRelay-UnitTests:
+    build:
+      targets:
+        NotchRelay: all
+        NotchRelayHook: all
+        NotchRelayTests: [test]
+    test:
+      config: Debug
+      gatherCoverageData: true
+      targets:
+        - NotchRelayTests
+  NotchRelay-UITests:
+    build:
+      targets:
+        NotchRelay: all
+        NotchRelayHook: all
+        NotchRelayUITests: [test]
+    test:
+      config: Debug
+      targets:
+        - NotchRelayUITests
