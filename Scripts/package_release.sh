@@ -39,8 +39,8 @@ xcodebuild -exportArchive \
 app="$export_dir/NotchRelay.app"
 [[ -d "$app" ]] || { print -u2 "Developer ID export did not produce NotchRelay.app."; exit 1; }
 codesign --verify --deep --strict --verbose=2 "$app"
-codesign -dv --verbose=4 "$app" 2>&1 | rg -q 'flags=.*runtime'
-codesign -dv --verbose=4 "$app" 2>&1 | rg -q 'Authority=Developer ID Application:'
+codesign -dv --verbose=4 "$app" 2>&1 | grep -q 'flags=.*runtime'
+codesign -dv --verbose=4 "$app" 2>&1 | grep -q 'Authority=Developer ID Application:'
 
 zip="$output/NotchRelay-$version.zip"
 ditto -c -k --sequesterRsrc --keepParent "$app" "$zip"
