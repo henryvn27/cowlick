@@ -59,4 +59,5 @@ jobs:
           echo "$GITLEAKS_SHA256  $archive" | sha256sum --check
           tar -xzf "$archive" -C "$RUNNER_TEMP" gitleaks
       - name: Scan complete Git history
-        run: "$RUNNER_TEMP/gitleaks" detect --source . --redact --verbose --log-opts=--all
+        run: |
+          "$RUNNER_TEMP/gitleaks" detect --source . --redact --verbose --log-opts=--all
