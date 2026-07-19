@@ -81,7 +81,7 @@ final class CowlickUITests: XCTestCase {
     let app = launch(arguments: ["--state=failed", "--expanded"])
     let failedSession = sessionRow(in: app, id: "demo-visual-state")
     XCTAssertTrue(failedSession.waitForExistence(timeout: 3))
-    XCTAssertEqual(failedSession.label, "Scoutly, Failed, Build verification failed")
+    XCTAssertEqual(failedSession.label, "Scoutly, Failed, Bridge self-test failed")
     XCTAssertTrue(app.buttons["Open Diagnostics"].exists)
   }
 

@@ -171,7 +171,7 @@ struct OnboardingView: View {
         Button(integrationTestInProgress ? "Testing…" : "Test Integration") {
           Task { await runIntegrationTest() }
         }
-        .disabled(integrationTestInProgress)
+        .disabled(integrationTestInProgress || !services.sessionStore.canPreviewTestStates)
         Button("Preview Approval") { services.sessionStore.testState(.approvalRequested) }
           .disabled(!services.sessionStore.canPreviewTestStates)
       }
@@ -280,20 +280,77 @@ struct OnboardingView: View {
   }
 
   private func runIntegrationTest() async {
+    guard !integrationTestInProgress else { return }
+    guard services.sessionStore.canPreviewTestStates else {
+      integrationTestStatus = "Resolve current work or approval before testing the integration."
+      return
+    }
     integrationTestInProgress = true
     defer { integrationTestInProgress = false }
     let selfTest = IntegrationSelfTestService(
       helperURL: services.hookInstaller.installedHelperURL)
     do {
       try await selfTest.ping()
-      try await selfTest.sendDemo(.working)
+      guard services.sessionStore.canPreviewTestStates else {
+        integrationTestStatus = "Live activity started, so the integration preview was cancelled."
+        return
+      }
+      let sessionID = "cowlick-self-test-\(UUID().uuidString)"
+      guard services.sessionStore.beginIntegrationDemoSession(sessionID) else {
+        integrationTestStatus = "Live activity started, so the integration preview was cancelled."
+        return
+      }
+      var keepPresentedState = false
+      defer {
+        services.sessionStore.finishIntegrationDemoSession(
+          sessionID, discardPresentedState: !keepPresentedState)
+      }
+      try await selfTest.sendDemo(.working, sessionID: sessionID)
+      guard await waitForIntegrationDemoEvent(.working, sessionID: sessionID) else {
+        integrationTestStatus = integrationPreviewFailureStatus(sessionID: sessionID)
+        return
+      }
       integrationTestStatus = "Authenticated bridge connected. Working state delivered."
       try await Task.sleep(for: .seconds(1.5))
-      try await selfTest.sendDemo(.completed)
+      guard services.sessionStore.isIntegrationDemoSessionActive(sessionID) else {
+        integrationTestStatus = "Live activity started, so the integration preview was cancelled."
+        return
+      }
+      try await selfTest.sendDemo(.completed, sessionID: sessionID)
+      guard await waitForIntegrationDemoEvent(.completed, sessionID: sessionID) else {
+        integrationTestStatus = integrationPreviewFailureStatus(sessionID: sessionID)
+        return
+      }
+      keepPresentedState = true
       integrationTestStatus = "Integration passed. Working and completion were delivered."
     } catch {
       integrationTestStatus = error.localizedDescription
     }
+  }
+
+  private func waitForIntegrationDemoEvent(
+    _ event: IntegrationDemoEvent,
+    sessionID: String
+  ) async -> Bool {
+    let deadline = Date().addingTimeInterval(2)
+    while Date() < deadline {
+      if services.sessionStore.hasObservedIntegrationDemoEvent(event, sessionID: sessionID) {
+        return true
+      }
+      guard services.sessionStore.isIntegrationDemoSessionActive(sessionID) else { return false }
+      do {
+        try await Task.sleep(for: .milliseconds(20))
+      } catch {
+        return false
+      }
+    }
+    return services.sessionStore.hasObservedIntegrationDemoEvent(event, sessionID: sessionID)
+  }
+
+  private func integrationPreviewFailureStatus(sessionID: String) -> String {
+    services.sessionStore.isIntegrationDemoSessionActive(sessionID)
+      ? "Integration preview delivery timed out."
+      : "Live activity started, so the integration preview was cancelled."
   }
 
   private func completeOnboarding() {

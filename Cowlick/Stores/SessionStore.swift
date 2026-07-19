@@ -9,6 +9,8 @@ final class SessionStore {
   private var seenApprovalRequestIDs: [UUID: Date] = [:]
   private var localDemoApprovalIDs: Set<UUID> = []
   private var localDemoSessionIDs: Set<String> = []
+  private var integrationDemoSessionIDs: Set<String> = []
+  private var ignoredIntegrationDemoSessionIDs: Set<String> = []
   var isExpanded = false
   var presentationDidChange: (() -> Void)?
 
@@ -84,11 +86,15 @@ final class SessionStore {
     let projectName = await Task.detached(priority: .utility) {
       ProjectNameResolver.resolve(workingDirectory: event.cwd)
     }.value
-    clearLocalDemoState()
+    if ignoredIntegrationDemoSessionIDs.contains(event.sessionId) { return nil }
+    let isIntegrationDemo = integrationDemoSessionIDs.contains(event.sessionId)
+    if isIntegrationDemo, !localDemoSessionIDs.contains(event.sessionId) { return nil }
+    clearLocalDemoState(preservingSessionID: isIntegrationDemo ? event.sessionId : nil)
 
     switch event.event {
     case .ping:
       eventLogger.record(event: .ping, project: projectName)
+      notifyPresentationChanged()
       return nil
     case .sessionStart:
       upsertSession(
@@ -176,6 +182,8 @@ final class SessionStore {
     seenApprovalRequestIDs.removeAll()
     localDemoApprovalIDs.removeAll()
     localDemoSessionIDs.removeAll()
+    ignoredIntegrationDemoSessionIDs.formUnion(integrationDemoSessionIDs)
+    integrationDemoSessionIDs.removeAll()
     sessions.removeAll()
     isExpanded = false
     eventLogger.reset()
@@ -284,13 +292,56 @@ final class SessionStore {
     notifyPresentationChanged()
   }
 
-  private func clearLocalDemoState() {
+  @discardableResult
+  func beginIntegrationDemoSession(_ sessionID: String) -> Bool {
+    guard integrationDemoSessionIDs.isEmpty, canPreviewTestStates else { return false }
+    clearLocalDemoState()
+    ignoredIntegrationDemoSessionIDs.remove(sessionID)
+    integrationDemoSessionIDs.insert(sessionID)
+    localDemoSessionIDs.insert(sessionID)
+    return true
+  }
+
+  func isIntegrationDemoSessionActive(_ sessionID: String) -> Bool {
+    integrationDemoSessionIDs.contains(sessionID) && localDemoSessionIDs.contains(sessionID)
+  }
+
+  func hasObservedIntegrationDemoEvent(_ event: IntegrationDemoEvent, sessionID: String) -> Bool {
+    guard isIntegrationDemoSessionActive(sessionID), let session = sessions[sessionID] else {
+      return false
+    }
+    return switch (event, session.status) {
+    case (.working, .working), (.completed, .completed): true
+    default: false
+    }
+  }
+
+  func finishIntegrationDemoSession(_ sessionID: String, discardPresentedState: Bool) {
+    integrationDemoSessionIDs.remove(sessionID)
+    if discardPresentedState { ignoredIntegrationDemoSessionIDs.insert(sessionID) }
+    guard discardPresentedState, localDemoSessionIDs.remove(sessionID) != nil else { return }
+    let requestIDs = Set(
+      approvalQueue
+        .filter { $0.sessionID == sessionID && localDemoApprovalIDs.contains($0.id) }
+        .map(\.id)
+    )
+    approvalQueue.removeAll { requestIDs.contains($0.id) }
+    localDemoApprovalIDs.subtract(requestIDs)
+    let removedSession = sessions.removeValue(forKey: sessionID) != nil
+    if removedSession || !requestIDs.isEmpty { notifyPresentationChanged() }
+  }
+
+  private func clearLocalDemoState(preservingSessionID: String? = nil) {
     approvalQueue.removeAll { localDemoApprovalIDs.contains($0.id) }
-    for sessionID in localDemoSessionIDs {
+    localDemoApprovalIDs.removeAll()
+    for sessionID in localDemoSessionIDs where sessionID != preservingSessionID {
       sessions.removeValue(forKey: sessionID)
     }
-    localDemoApprovalIDs.removeAll()
-    localDemoSessionIDs.removeAll()
+    if let preservingSessionID, localDemoSessionIDs.contains(preservingSessionID) {
+      localDemoSessionIDs = [preservingSessionID]
+    } else {
+      localDemoSessionIDs.removeAll()
+    }
   }
 
   private func handleApproval(_ event: BridgeEvent, projectName: String) async -> ApprovalDecision {

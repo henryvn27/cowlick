@@ -156,6 +156,7 @@ final class SessionStoreTests: XCTestCase {
       ("Completed", { $0.testState(.completed) }),
       ("Failed", { $0.testState(.failed) }),
       ("Multiple Sessions", { $0.testMultipleSessions() }),
+      ("Test Integration", { _ = $0.beginIntegrationDemoSession("blocked-integration-demo") }),
     ]
 
     for (name, preview) in previews {
@@ -196,6 +197,7 @@ final class SessionStoreTests: XCTestCase {
       ("Completed", { $0.testState(.completed) }),
       ("Failed", { $0.testState(.failed) }),
       ("Multiple Sessions", { $0.testMultipleSessions() }),
+      ("Test Integration", { _ = $0.beginIntegrationDemoSession("blocked-integration-demo") }),
     ]
 
     for (name, preview) in previews {
@@ -240,6 +242,101 @@ final class SessionStoreTests: XCTestCase {
     XCTAssertTrue(store.decide(requestID: liveRequestID, decision: .deny))
     let decision = await decisionTask.value
     XCTAssertEqual(decision, .deny)
+  }
+
+  func testLiveApprovalCancelsIntegrationDemoAndIgnoresLateCompletion() async {
+    let settings = makeTestSettings()
+    settings.approvalTimeout = 10
+    let store = SessionStore(settings: settings)
+    let demoSessionID = "cowlick-self-test-\(UUID().uuidString)"
+    XCTAssertTrue(store.beginIntegrationDemoSession(demoSessionID))
+    _ = await store.receive(makeBridgeEvent(event: .working, sessionID: demoSessionID))
+    XCTAssertTrue(store.isIntegrationDemoSessionActive(demoSessionID))
+
+    let liveRequestID = UUID()
+    let liveEvent = makeBridgeEvent(
+      event: .approvalRequested,
+      requestID: liveRequestID,
+      sessionID: "live-approval",
+      toolName: "Bash",
+      toolInput: .object(["command": .string("git push")])
+    )
+    let decisionTask = Task { await store.receive(liveEvent) }
+    let queued = await waitUntil { store.currentApproval?.id == liveRequestID }
+    XCTAssertTrue(queued)
+    guard let liveSession = store.sessions[liveEvent.sessionId] else {
+      decisionTask.cancel()
+      return XCTFail("Expected live approval session")
+    }
+    XCTAssertFalse(store.isIntegrationDemoSessionActive(demoSessionID))
+    store.finishIntegrationDemoSession(demoSessionID, discardPresentedState: true)
+
+    _ = await store.receive(makeBridgeEvent(event: .completed, sessionID: demoSessionID))
+
+    XCTAssertNil(store.sessions[demoSessionID])
+    XCTAssertEqual(store.approvalQueue.map(\.id), [liveRequestID])
+    XCTAssertEqual(store.sessions[liveEvent.sessionId], liveSession)
+    XCTAssertTrue(store.decide(requestID: liveRequestID, decision: .allow))
+    let decision = await decisionTask.value
+    XCTAssertEqual(decision, .allow)
+  }
+
+  func testResetCancelsIntegrationDemoAndIgnoresLateCompletion() async {
+    let store = SessionStore(settings: makeTestSettings())
+    let demoSessionID = "cowlick-self-test-\(UUID().uuidString)"
+    XCTAssertTrue(store.beginIntegrationDemoSession(demoSessionID))
+    _ = await store.receive(makeBridgeEvent(event: .working, sessionID: demoSessionID))
+    XCTAssertTrue(store.hasObservedIntegrationDemoEvent(.working, sessionID: demoSessionID))
+
+    store.reset()
+    XCTAssertFalse(store.isIntegrationDemoSessionActive(demoSessionID))
+    XCTAssertTrue(store.sessions.isEmpty)
+
+    _ = await store.receive(makeBridgeEvent(event: .completed, sessionID: demoSessionID))
+
+    XCTAssertNil(store.sessions[demoSessionID])
+    XCTAssertTrue(store.approvalQueue.isEmpty)
+  }
+
+  func testOverlappingIntegrationDemoStartsAreRejected() {
+    let store = SessionStore(settings: makeTestSettings())
+
+    XCTAssertTrue(store.beginIntegrationDemoSession("first-integration-demo"))
+    XCTAssertFalse(store.beginIntegrationDemoSession("second-integration-demo"))
+    XCTAssertTrue(store.isIntegrationDemoSessionActive("first-integration-demo"))
+    XCTAssertFalse(store.isIntegrationDemoSessionActive("second-integration-demo"))
+  }
+
+  func testIntegrationDemoOwnershipEndsOnlyAfterObservedCompletion() async {
+    let store = SessionStore(settings: makeTestSettings())
+    let demoSessionID = "cowlick-self-test-\(UUID().uuidString)"
+    XCTAssertTrue(store.beginIntegrationDemoSession(demoSessionID))
+
+    _ = await store.receive(makeBridgeEvent(event: .working, sessionID: demoSessionID))
+    XCTAssertTrue(store.hasObservedIntegrationDemoEvent(.working, sessionID: demoSessionID))
+    XCTAssertFalse(store.hasObservedIntegrationDemoEvent(.completed, sessionID: demoSessionID))
+
+    _ = await store.receive(makeBridgeEvent(event: .completed, sessionID: demoSessionID))
+    XCTAssertTrue(store.hasObservedIntegrationDemoEvent(.completed, sessionID: demoSessionID))
+    store.finishIntegrationDemoSession(demoSessionID, discardPresentedState: false)
+
+    XCTAssertFalse(store.isIntegrationDemoSessionActive(demoSessionID))
+    XCTAssertNotNil(store.sessions[demoSessionID])
+  }
+
+  func testPingClearsPreviewAndNotifiesPresentation() async {
+    let store = SessionStore(settings: makeTestSettings())
+    store.testState(.approvalRequested)
+    XCTAssertNotNil(store.currentApproval)
+    XCTAssertNotNil(store.sessions["demo-visual-state"])
+    var presentationChangeCount = 0
+    store.presentationDidChange = { presentationChangeCount += 1 }
+
+    _ = await store.receive(makeBridgeEvent(event: .ping, sessionID: "health-check"))
+
+    XCTAssertNil(store.currentApproval)
+    XCTAssertNil(store.sessions["demo-visual-state"])
+    XCTAssertEqual(presentationChangeCount, 1)
   }
 
   func testDuplicateApprovalRequestIDDefersWithoutAliasingDecision() async {
