@@ -421,6 +421,10 @@ final class DiagnosticsTests: XCTestCase {
       "api.”key=MASKME",
       "API “key”：MASKME",
       "to「ken」=MASKME",
+      #"token"x=MASKME"#,
+      #"token\"x=MASKME"#,
+      "signature”part=MASKME",
+      "credential「part」:MASKME",
     ] {
       let output = EventLogger.sanitizeError(input)
       XCTAssertTrue(output.contains("<redacted>"), output)
@@ -445,6 +449,10 @@ final class DiagnosticsTests: XCTestCase {
       "API “key” names only",
       "autho”rization prose",
       "version “name”：public",
+      #"token"x names only"#,
+      #"token\"x names only"#,
+      "signature”part names only",
+      "credential「part」 names only",
     ] {
       XCTAssertEqual(EventLogger.sanitizeError(prose), prose)
     }

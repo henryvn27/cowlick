@@ -761,7 +761,7 @@ final class EventLogger {
           let markerEnd = credentialLabelTerminatorEnd(in: scalars, from: cursor),
           markerEnd < scalars.count, isIdentifierScalar(scalars[markerEnd])
         else { break }
-        if labelPrefixIsSensitive {
+        if labelPrefixIsSensitive, hasLeadingWrapper || !words.isEmpty {
           return CredentialLabelScan(field: nil, end: max(wordEnd, markerEnd))
         }
         cursor = markerEnd
