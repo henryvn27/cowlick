@@ -727,13 +727,15 @@ final class DiagnosticsTests: XCTestCase {
     }
   }
 
-  func testBearerProtectedValueFieldScanningRemainsLinearForRepeatedCandidates() {
-    let input = "Bearer: value " + String(repeating: "token ", count: 500) + "visible"
-    EventLogger.resetCredentialLabelScanCountForTesting()
+  #if DEBUG
+    func testBearerProtectedValueFieldScanningRemainsLinearForRepeatedCandidates() {
+      let input = "Bearer: value " + String(repeating: "token ", count: 500) + "visible"
+      EventLogger.resetCredentialLabelScanCountForTesting()
 
-    XCTAssertEqual(EventLogger.sanitizeError(input), "Bearer=<redacted>")
-    XCTAssertEqual(EventLogger.credentialLabelScanCountForTesting, 2)
-  }
+      XCTAssertEqual(EventLogger.sanitizeError(input), "Bearer=<redacted>")
+      XCTAssertEqual(EventLogger.credentialLabelScanCountForTesting, 2)
+    }
+  #endif
 
   func testStructuredAuthorizationValuesRemainOpaqueAcrossDelimiters() {
     let aws = EventLogger.sanitizeError(
