@@ -262,6 +262,10 @@ private struct LaunchAssetGenerator {
         root.appendingPathComponent("Assets/Social/launch-copy.md"),
         pressSocial.appendingPathComponent("launch-copy.md")
       ),
+      (
+        root.appendingPathComponent("Assets/capture-provenance.json"),
+        pressKit.appendingPathComponent("capture-provenance.json")
+      ),
       (root.appendingPathComponent("LICENSE"), pressKit.appendingPathComponent("LICENSE.txt")),
     ]
     for (source, destination) in copies { try replaceCopy(source, destination) }

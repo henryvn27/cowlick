@@ -9,6 +9,8 @@
 
 ![Cowlick showing a request-matched approval and multiple sessions on a non-notch display](Assets/Screenshots/hero.png)
 
+[Watch the 8-second product demo](Assets/Demo/cowlick-demo.mp4) · [Open the press kit](Assets/PressKit/README.md)
+
 > Cowlick does not publish unsigned or development-signed downloads. The [GitHub Releases page](https://github.com/henryvn27/cowlick/releases) is the source of truth: if it lists no release, use the contributor install rather than an unverified build artifact.
 
 Cowlick is a native, local-first macOS companion for OpenAI Codex. It stays hidden while idle, shows active projects and completion near the notch, and lets you allow once or deny supported Codex permission requests without becoming a second Codex client.

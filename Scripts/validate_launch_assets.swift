@@ -23,6 +23,16 @@ private struct ImageExpectation {
   let requiredText: [String]
 }
 
+private struct CaptureProvenance: Decodable {
+  let schemaVersion: Int
+  let sourceCommit: String
+  let bundleIdentifier: String
+  let marketingVersion: String
+  let buildVersion: String
+  let appExecutableSHA256: String
+  let helperExecutableSHA256: String
+}
+
 private let scriptURL = URL(fileURLWithPath: #filePath)
 private let root = scriptURL.deletingLastPathComponent().deletingLastPathComponent()
 private var failures: [String] = []
@@ -44,6 +54,7 @@ private let synchronizedCopies = [
   ("Assets/Social/github-social-preview.png", "Assets/PressKit/Social/github-social-preview.png"),
   ("Assets/Social/x-launch.png", "Assets/PressKit/Social/x-launch.png"),
   ("Assets/Social/launch-copy.md", "Assets/PressKit/Social/launch-copy.md"),
+  ("Assets/capture-provenance.json", "Assets/PressKit/capture-provenance.json"),
   ("LICENSE", "Assets/PressKit/LICENSE.txt"),
 ]
 private let pressKitAllowlist: Set<String> = [
@@ -66,6 +77,7 @@ private let pressKitAllowlist: Set<String> = [
   "Social/github-social-preview.png",
   "Social/x-launch.png",
   "Social/launch-copy.md",
+  "capture-provenance.json",
 ]
 
 private func absolute(_ path: String) -> URL { root.appendingPathComponent(path) }
@@ -92,6 +104,20 @@ private func recognizedText(at url: URL) -> String {
   }
   return (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }
     .joined(separator: " ")
+}
+
+private func failureCopyIssues(in recognizedText: String) -> [String] {
+  let text = recognizedText.lowercased()
+  var issues: [String] = []
+  if !text.contains("bridge self-test failed") {
+    issues.append(
+      "Assets/Screenshots/failed-expanded.png does not visibly contain “Bridge self-test failed”.")
+  }
+  if text.contains("build verification failed") {
+    issues.append(
+      "Assets/Screenshots/failed-expanded.png contains stale “Build verification failed” copy.")
+  }
+  return issues
 }
 
 private func validateImages() {
@@ -172,6 +198,9 @@ private func validateImages() {
     for required in expectation.requiredText where !text.contains(required.lowercased()) {
       fail("\(expectation.path) does not visibly contain “\(required)”.")
     }
+    if expectation.path == "Assets/Screenshots/failed-expanded.png" {
+      for issue in failureCopyIssues(in: text) { fail(issue) }
+    }
     if text.contains("notchrelay") || text.contains("notch relay") {
       fail("\(expectation.path) contains stale NotchRelay branding.")
     }
@@ -191,6 +220,77 @@ private func validateImages() {
   let hero = try? Data(contentsOf: absolute("Assets/Screenshots/hero.png"))
   let xLaunch = try? Data(contentsOf: absolute("Assets/Social/x-launch.png"))
   if hero == xLaunch { fail("The X launch image must not be byte-identical to the hero image.") }
+}
+
+private func provenanceIssues(data: Data?) -> [String] {
+  guard let data else { return ["Missing Assets/capture-provenance.json"] }
+  let expectedKeys: Set<String> = [
+    "schemaVersion", "sourceCommit", "bundleIdentifier", "marketingVersion", "buildVersion",
+    "appExecutableSHA256", "helperExecutableSHA256",
+  ]
+  guard
+    let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+    Set(object.keys) == expectedKeys,
+    let provenance = try? JSONDecoder().decode(CaptureProvenance.self, from: data)
+  else {
+    return ["Assets/capture-provenance.json does not match the required schema."]
+  }
+
+  var issues: [String] = []
+  if provenance.schemaVersion != 1 {
+    issues.append("Assets/capture-provenance.json has an unsupported schema version.")
+  }
+  if provenance.sourceCommit.range(of: "^[0-9a-f]{40}$", options: .regularExpression) == nil {
+    issues.append("Assets/capture-provenance.json does not contain a full source commit SHA.")
+  }
+  if provenance.bundleIdentifier != "com.henryvn27.Cowlick" {
+    issues.append("Assets/capture-provenance.json has the wrong bundle identifier.")
+  }
+  for (label, value) in [
+    ("marketing version", provenance.marketingVersion), ("build version", provenance.buildVersion),
+  ] where value.isEmpty {
+    issues.append("Assets/capture-provenance.json has an empty \(label).")
+  }
+  for (label, value) in [
+    ("app executable", provenance.appExecutableSHA256),
+    ("helper executable", provenance.helperExecutableSHA256),
+  ] where value.range(of: "^[0-9a-f]{64}$", options: .regularExpression) == nil {
+    issues.append("Assets/capture-provenance.json has an invalid \(label) SHA-256.")
+  }
+  return issues
+}
+
+private func validateProvenance() {
+  let data = try? Data(contentsOf: absolute("Assets/capture-provenance.json"))
+  for issue in provenanceIssues(data: data) { fail(issue) }
+}
+
+private let launchDraftHeadings = [
+  "X / Twitter", "Hacker News", "Reddit", "Product Hunt", "GitHub release notes draft",
+]
+private let disclaimer = "Unofficial community project; not affiliated with or endorsed by OpenAI."
+
+private func launchCopyIssues(_ value: String) -> [String] {
+  var issues: [String] = []
+  for heading in launchDraftHeadings {
+    let marker = "## \(heading)"
+    guard let start = value.range(of: marker) else {
+      issues.append("Assets/Social/launch-copy.md is missing the \(heading) draft.")
+      continue
+    }
+    let remainder = value[start.upperBound...]
+    let end = remainder.range(of: "\n## ")?.lowerBound ?? value.endIndex
+    if !value[start.lowerBound..<end].contains(disclaimer) {
+      issues.append("The \(heading) draft is missing the OpenAI affiliation disclaimer.")
+    }
+  }
+  for link in [
+    "https://github.com/henryvn27/cowlick/blob/main/Assets/Demo/cowlick-demo.mp4",
+    "https://github.com/henryvn27/cowlick/tree/main/Assets/PressKit",
+  ] where !value.contains(link) {
+    issues.append("Assets/Social/launch-copy.md is missing direct link \(link).")
+  }
+  return issues
 }
 
 private func validateVideo() async {
@@ -337,6 +437,32 @@ private func validateTextAssets() {
   {
     fail("Press-kit README contains paths outside the self-contained folder.")
   }
+
+  if let launchCopy = try? String(
+    contentsOf: absolute("Assets/Social/launch-copy.md"), encoding: .utf8)
+  {
+    for issue in launchCopyIssues(launchCopy) { fail(issue) }
+  } else {
+    fail("Missing Assets/Social/launch-copy.md")
+  }
+
+  if let readme = try? String(contentsOf: absolute("README.md"), encoding: .utf8) {
+    for link in ["(Assets/Demo/cowlick-demo.mp4)", "(Assets/PressKit/README.md)"]
+    where !readme.contains(link) {
+      fail("README.md is missing direct launch-asset link \(link).")
+    }
+  }
+
+  if let pressReadme = try? String(
+    contentsOf: absolute("Assets/PressKit/README.md"), encoding: .utf8)
+  {
+    for link in [
+      "[capture-provenance.json](capture-provenance.json)",
+      "[Demo/cowlick-demo.mp4](Demo/cowlick-demo.mp4)",
+    ] where !pressReadme.contains(link) {
+      fail("Assets/PressKit/README.md is missing direct asset link \(link).")
+    }
+  }
 }
 
 private func runPressKitSelfCheck() throws {
@@ -397,6 +523,44 @@ private func runPressKitSelfCheck() throws {
     throw ValidationError.selfCheck("unexpected press-kit content was not rejected")
   }
 
+  let validProvenance = Data(
+    """
+    {
+      "schemaVersion": 1,
+      "sourceCommit": "0123456789abcdef0123456789abcdef01234567",
+      "bundleIdentifier": "com.henryvn27.Cowlick",
+      "marketingVersion": "1.0.0",
+      "buildVersion": "1",
+      "appExecutableSHA256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "helperExecutableSHA256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    }
+    """.utf8)
+  guard provenanceIssues(data: validProvenance).isEmpty else {
+    throw ValidationError.selfCheck("valid capture provenance was rejected")
+  }
+  guard !provenanceIssues(data: nil).isEmpty else {
+    throw ValidationError.selfCheck("missing capture provenance was accepted")
+  }
+  guard failureCopyIssues(in: "Bridge self-test failed").isEmpty else {
+    throw ValidationError.selfCheck("current failure copy was rejected")
+  }
+  guard !failureCopyIssues(in: "Build verification failed").isEmpty else {
+    throw ValidationError.selfCheck("stale failure copy was accepted")
+  }
+  let validDrafts =
+    launchDraftHeadings.map { "## \($0)\n\n\(disclaimer)" }
+    .joined(separator: "\n\n")
+    + "\nhttps://github.com/henryvn27/cowlick/blob/main/Assets/Demo/cowlick-demo.mp4"
+    + "\nhttps://github.com/henryvn27/cowlick/tree/main/Assets/PressKit"
+  guard launchCopyIssues(validDrafts).isEmpty else {
+    throw ValidationError.selfCheck("complete launch-copy disclaimers or links were rejected")
+  }
+  var incompleteDrafts = validDrafts
+  if let range = incompleteDrafts.range(of: disclaimer) { incompleteDrafts.removeSubrange(range) }
+  guard !launchCopyIssues(incompleteDrafts).isEmpty else {
+    throw ValidationError.selfCheck("a missing launch-copy disclaimer was accepted")
+  }
+
   print("Launch-asset validator self-check passed.")
 }
 
@@ -413,6 +577,7 @@ if CommandLine.arguments.contains("--self-check") {
 Task {
   validateImages()
   await validateVideo()
+  validateProvenance()
   validatePressKit()
   validateTextAssets()
 
