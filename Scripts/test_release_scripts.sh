@@ -515,6 +515,52 @@ for command_name in pgrep open xcodegen; do
   print -n -- '#!/bin/zsh\nexit 0\n' > "$wrapper_fake_bin/$command_name"
   chmod 755 "$wrapper_fake_bin/$command_name"
 done
+rollback_remove_command="$wrapper_fake_bin/rollback-remove"
+rollback_move_command="$wrapper_fake_bin/rollback-move"
+print -r -- '#!/bin/zsh
+set -euo pipefail
+case "${COWLICK_TEST_ROLLBACK_REMOVE_RESULT:-}" in
+  fail) exit 74 ;;
+  false-success) exit 0 ;;
+  dangling-success)
+    destination="${@[-1]}"
+    /bin/rm "$@"
+    ln -s /nonexistent-cowlick-app "$destination"
+    exit 0
+    ;;
+  *) exec /bin/rm "$@" ;;
+esac
+' > "$rollback_remove_command"
+print -r -- '#!/bin/zsh
+set -euo pipefail
+case "${COWLICK_TEST_ROLLBACK_MOVE_RESULT:-}" in
+  fail) exit 75 ;;
+  false-success) exit 0 ;;
+  *) exec /bin/mv "$@" ;;
+esac
+' > "$rollback_move_command"
+chmod 755 "$rollback_remove_command" "$rollback_move_command"
+COWLICK_TEST_WRAPPER="$wrapper_scripts/install_local.sh" \
+  COWLICK_TEST_ROLLBACK_REMOVE="$rollback_remove_command" \
+  COWLICK_TEST_ROLLBACK_MOVE="$rollback_move_command" "$real_swift" -e '
+    import Foundation
+
+    let environment = ProcessInfo.processInfo.environment
+    let path = environment["COWLICK_TEST_WRAPPER"]!
+    var script = try String(contentsOfFile: path, encoding: .utf8)
+    let removeSource = #"/bin/rm -rf "$destination" || destination_removed=false"#
+    let removeReplacement =
+      "\"\(environment["COWLICK_TEST_ROLLBACK_REMOVE"]!)\" -rf \"$destination\" || destination_removed=false"
+    let moveSource = #"/bin/mv "$backup" "$destination" || move_exit_code=$?"#
+    let moveReplacement =
+      "\"\(environment["COWLICK_TEST_ROLLBACK_MOVE"]!)\" \"$backup\" \"$destination\" || move_exit_code=$?"
+    precondition(script.components(separatedBy: removeSource).count == 2)
+    precondition(script.components(separatedBy: moveSource).count == 2)
+    script = script.replacingOccurrences(of: removeSource, with: removeReplacement)
+    script = script.replacingOccurrences(of: moveSource, with: moveReplacement)
+    try script.write(toFile: path, atomically: true, encoding: .utf8)
+  '
+chmod 755 "$wrapper_scripts/install_local.sh"
 print -r -- '#!/bin/zsh
 set -euo pipefail
 derived_data=""
@@ -868,7 +914,6 @@ assert_app_rollback_failure_retains_recovery() {
   env PATH="$wrapper_fake_bin:$PATH" HOME="$home" COWLICK_HOME="$home" \
     TMPDIR="$temporary_directory" COWLICK_TEST_REAL_SWIFT="$real_swift" \
     COWLICK_TEST_HELPER_MARKER="failed-$name" COWLICK_TEST_VERIFY_FAIL=1 \
-    COWLICK_TESTING=1 \
     COWLICK_TEST_ROLLBACK_REMOVE_RESULT="$remove_result" \
     COWLICK_TEST_ROLLBACK_MOVE_RESULT="$move_result" \
     "$wrapper_scripts/install_local.sh" > "$output" 2>&1 || wrapper_status=$?
@@ -889,6 +934,8 @@ assert_app_rollback_failure_retains_recovery() {
 assert_app_rollback_failure_retains_recovery remove-failure fail ''
 assert_app_rollback_failure_retains_recovery move-failure '' fail
 assert_app_rollback_failure_retains_recovery move-false-success '' false-success
+assert_app_rollback_failure_retains_recovery dangling-destination dangling-success ''
+[[ -L "$temporary_directory/wrapper-app-rollback-dangling-destination-home/Applications/Cowlick.app" ]]
 
 legacy_cleanup_home="$temporary_directory/wrapper-legacy-cleanup-home"
 legacy_cleanup_output="$temporary_directory/wrapper-legacy-cleanup-output"

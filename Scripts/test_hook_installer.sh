@@ -104,6 +104,13 @@ print -n -- '2' > "$malformed_marker_snapshot/.cowlick-integration-snapshot-v1"
 chmod 600 "$malformed_marker_snapshot/.cowlick-integration-snapshot-v1"
 assert_invalid_snapshot_rejected_without_mutation malformed-marker "$malformed_marker_snapshot"
 
+dangling_marker_snapshot="$temporary_directory/dangling-marker-snapshot"
+mkdir -p "$dangling_marker_snapshot"
+cp "$invalid_restore_hooks" "$dangling_marker_snapshot/hooks.json"
+ln -s "$temporary_directory/missing-marker-target" \
+  "$dangling_marker_snapshot/.cowlick-integration-snapshot-v1"
+assert_invalid_snapshot_rejected_without_mutation dangling-marker "$dangling_marker_snapshot"
+
 COWLICK_TEST_HOME="$test_home" COWLICK_TEST_HOOKS="$hooks_directory/hooks.json" swift -e '
   import Foundation
 

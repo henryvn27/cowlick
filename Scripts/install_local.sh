@@ -34,6 +34,10 @@ rollback_directory="$(mktemp -d "${TMPDIR%/}/cowlick-install-rollback.XXXXXX")"
 chmod 700 "$rollback_directory"
 rollback_snapshot_marker="$rollback_directory/.cowlick-integration-snapshot-v1"
 
+path_exists() {
+  [[ -e "$1" || -L "$1" ]]
+}
+
 cleanup_installer() {
   $rollback_snapshot_retained || rm -rf "$rollback_directory"
 }
@@ -73,17 +77,9 @@ rollback_install() {
     print -u2 "Cowlick integration state is uncertain; no valid rollback snapshot is available."
   fi
 
-  if [[ -e "$destination" ]]; then
-    if [[ "${COWLICK_TESTING:-}" == 1 \
-      && "${COWLICK_TEST_ROLLBACK_REMOVE_RESULT:-}" == fail ]]; then
-      destination_removed=false
-    elif [[ "${COWLICK_TESTING:-}" == 1 \
-      && "${COWLICK_TEST_ROLLBACK_REMOVE_RESULT:-}" == false-success ]]; then
-      :
-    else
-      /bin/rm -rf "$destination" || destination_removed=false
-    fi
-    if [[ -e "$destination" ]]; then
+  if path_exists "$destination"; then
+    /bin/rm -rf "$destination" || destination_removed=false
+    if path_exists "$destination"; then
       destination_removed=false
     fi
     if ! $destination_removed; then
@@ -92,28 +88,32 @@ rollback_install() {
     fi
   fi
 
-  if [[ -n "$backup" && -d "$backup" ]]; then
-    local move_exit_code=0
-    if $destination_removed; then
-      case "${COWLICK_TESTING:-}:${COWLICK_TEST_ROLLBACK_MOVE_RESULT:-}" in
-        1:fail) move_exit_code=75 ;;
-        1:false-success) ;;
-        *) /bin/mv "$backup" "$destination" || move_exit_code=$? ;;
-      esac
-    else
-      move_exit_code=76
-    fi
-    if (( move_exit_code == 0 )) && [[ -d "$destination" && ! -e "$backup" ]]; then
-      app_restored=true
-      if ! open -n "$destination" >/dev/null 2>&1; then
-        app_relaunched=false
+  if [[ -n "$backup" ]]; then
+    if path_exists "$backup"; then
+      local move_exit_code=0
+      if $destination_removed && [[ -d "$backup" && ! -L "$backup" ]]; then
+        /bin/mv "$backup" "$destination" || move_exit_code=$?
+      elif $destination_removed; then
+        move_exit_code=77
+      else
+        move_exit_code=76
+      fi
+      if (( move_exit_code == 0 )) && [[ -d "$destination" && ! -L "$destination" ]] \
+        && ! path_exists "$backup"; then
+        app_restored=true
+        if ! open -n "$destination" >/dev/null 2>&1; then
+          app_relaunched=false
+          rollback_snapshot_retained=true
+          print -u2 -- "Previous Cowlick app was restored on disk but could not be relaunched from $destination"
+        fi
+      else
         rollback_snapshot_retained=true
-        print -u2 -- "Previous Cowlick app was restored on disk but could not be relaunched from $destination"
+        print -u2 -- "Previous Cowlick app restoration failed (exit $move_exit_code)."
+        path_exists "$backup" && print -u2 -- "Previous Cowlick app backup retained at $backup"
       fi
     else
       rollback_snapshot_retained=true
-      print -u2 -- "Previous Cowlick app restoration failed (exit $move_exit_code)."
-      [[ -e "$backup" ]] && print -u2 -- "Previous Cowlick app backup retained at $backup"
+      print -u2 -- "Previous Cowlick app backup is missing from $backup"
     fi
     if $app_restored && $app_relaunched && $integration_restored; then
       print -u2 "Previous local Cowlick app restored."
@@ -138,7 +138,7 @@ rollback_install() {
     fi
   fi
   if $rollback_snapshot_retained; then
-    if [[ -e "$rollback_snapshot_marker" ]]; then
+    if path_exists "$rollback_snapshot_marker"; then
       print -u2 -- "Rollback snapshot retained at $rollback_directory"
     else
       print -u2 -- "Rollback workspace retained at $rollback_directory"
@@ -188,7 +188,7 @@ for process_id in $stopped_pids; do
 done
 
 mkdir -p "$HOME/Applications"
-if [[ -d "$destination" ]]; then
+if path_exists "$destination"; then
   backup="$HOME/Applications/Cowlick.app.backup-$(date +%Y%m%d-%H%M%S)"
   mv "$destination" "$backup"
   print "Previous local app moved to $backup"
@@ -200,7 +200,7 @@ integration_install_status=0
 swift "$script_dir/install_hooks.swift" install \
   --helper "$destination/Contents/Helpers/cowlick-hook" \
   --snapshot "$rollback_directory" || integration_install_status=$?
-if [[ -e "$rollback_snapshot_marker" || -L "$rollback_snapshot_marker" ]]; then
+if path_exists "$rollback_snapshot_marker"; then
   integration_snapshot_available=true
 fi
 if (( integration_install_status != 0 )); then
