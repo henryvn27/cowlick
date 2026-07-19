@@ -56,8 +56,8 @@ final class SessionStore {
     return sessions.values.allSatisfy { session in
       guard !localDemoSessionIDs.contains(session.id) else { return true }
       return switch session.status {
-      case .working, .awaitingApproval: false
-      case .idle, .failed, .completed: true
+      case .working, .awaitingApproval, .failed: false
+      case .idle, .completed: true
       }
     }
   }

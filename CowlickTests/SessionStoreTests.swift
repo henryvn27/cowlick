@@ -226,15 +226,47 @@ final class SessionStoreTests: XCTestCase {
     }
   }
 
+  func testEveryPreviewActionPreservesAndCannotHideLiveFailedSession() async {
+    let previews: [(String, (SessionStore) -> Void)] = [
+      ("Working", { $0.testState(.working) }),
+      ("Approval", { $0.testState(.approvalRequested) }),
+      ("Completed", { $0.testState(.completed) }),
+      ("Failed", { $0.testState(.failed) }),
+      ("Multiple Sessions", { $0.testMultipleSessions() }),
+      (
+        "Test Integration",
+        {
+          guard let lease = $0.beginIntegrationSelfTest(owner: .onboarding) else { return }
+          _ = $0.beginIntegrationDemoSession("blocked-integration-demo", lease: lease)
+        }
+      ),
+    ]
+
+    for (name, preview) in previews {
+      let store = SessionStore(settings: makeTestSettings())
+      _ = await store.receive(
+        makeBridgeEvent(event: .failed, sessionID: "live-failure", error: "Real build failed"))
+      let liveSession = store.sessions["live-failure"]
+
+      XCTAssertFalse(store.canPreviewTestStates, name)
+      preview(store)
+
+      XCTAssertEqual(store.sessions["live-failure"], liveSession, name)
+      XCTAssertEqual(store.sessions.count, 1, name)
+      XCTAssertEqual(store.displaySession, liveSession, name)
+      XCTAssertTrue(store.approvalQueue.isEmpty, name)
+      XCTAssertFalse(store.integrationSelfTestInProgress, name)
+    }
+  }
+
   func testLiveApprovalClearsOnlyLocallyOwnedDemoState() async {
     let settings = makeTestSettings()
     settings.approvalTimeout = 10
     let store = SessionStore(settings: settings)
-    _ = await store.receive(
-      makeBridgeEvent(event: .failed, sessionID: "existing-failure", error: "Build failed"))
-    let existingSession = store.sessions["existing-failure"]
     store.testState(.approvalRequested)
     let demoRequestID = store.currentApproval?.id
+    XCTAssertNotNil(demoRequestID)
+    XCTAssertNotNil(store.sessions["demo-visual-state"])
     let liveRequestID = UUID()
     let event = makeBridgeEvent(
       event: .approvalRequested,
@@ -249,8 +281,8 @@ final class SessionStoreTests: XCTestCase {
     XCTAssertTrue(queued)
     XCTAssertFalse(store.approvalQueue.contains { $0.id == demoRequestID })
     XCTAssertEqual(store.approvalQueue.map(\.id), [liveRequestID])
-    XCTAssertEqual(store.sessions["existing-failure"], existingSession)
     XCTAssertNil(store.sessions["demo-visual-state"])
+    XCTAssertEqual(Set(store.sessions.keys), ["live-approval"])
     XCTAssertTrue(store.decide(requestID: liveRequestID, decision: .deny))
     let decision = await decisionTask.value
     XCTAssertEqual(decision, .deny)
