@@ -162,7 +162,7 @@ final class EventLogger {
       let matchEnd = NSMaxRange(match.range)
       let replacement =
         removedBoundaryOffsets.contains(matchEnd)
-          && nextScalar(in: value, atUTF16Offset: matchEnd).map({ !isHomeBoundary($0) }) == true
+          && !hasVisibleHomeBoundary(in: value, atUTF16Offset: matchEnd)
         ? "~ " : "~"
       redacted.replaceSubrange(range, with: replacement)
     }
@@ -175,7 +175,14 @@ final class EventLogger {
     removedBoundaryOffsets: Set<Int>
   ) -> Bool {
     removedBoundaryOffsets.contains(offset)
-      || nextScalar(in: value, atUTF16Offset: offset).map(isHomeBoundary) ?? true
+      || hasVisibleHomeBoundary(in: value, atUTF16Offset: offset)
+  }
+
+  private static func hasVisibleHomeBoundary(in value: String, atUTF16Offset offset: Int) -> Bool {
+    guard let scalar = nextScalar(in: value, atUTF16Offset: offset) else { return true }
+    if isUnconditionalHomeBoundary(scalar) { return true }
+    guard scalar.value == 0x2D || scalar.value == 0x2E else { return false }
+    return tokenEnds(in: value, atUTF16Offset: offset + 1)
   }
 
   private static func nextScalar(in value: String, atUTF16Offset offset: Int) -> UnicodeScalar? {
@@ -183,10 +190,18 @@ final class EventLogger {
     return index < value.endIndex ? value[index...].unicodeScalars.first : nil
   }
 
-  private static func isHomeBoundary(_ scalar: UnicodeScalar) -> Bool {
-    scalar.value == 0x2F
-      || CharacterSet.whitespacesAndNewlines.contains(scalar)
-      || CharacterSet.punctuationCharacters.contains(scalar)
+  private static func isUnconditionalHomeBoundary(_ scalar: UnicodeScalar) -> Bool {
+    if scalar.value == 0x2F || CharacterSet.whitespacesAndNewlines.contains(scalar) {
+      return true
+    }
+    return [0x21, 0x22, 0x27, 0x29, 0x2C, 0x3A, 0x3B, 0x3F, 0x5D, 0x7D].contains(
+      scalar.value)
+  }
+
+  private static func tokenEnds(in value: String, atUTF16Offset offset: Int) -> Bool {
+    guard let scalar = nextScalar(in: value, atUTF16Offset: offset) else { return true }
+    return CharacterSet.whitespacesAndNewlines.contains(scalar)
+      || [0x22, 0x27, 0x29, 0x5D, 0x7D].contains(scalar.value)
   }
 
   private static func redactCredentials(in value: String) -> String {

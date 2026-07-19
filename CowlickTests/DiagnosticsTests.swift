@@ -147,6 +147,22 @@ final class DiagnosticsTests: XCTestCase {
     XCTAssertTrue(output.contains("inside ~/private"))
   }
 
+  func testCustomHomeBoundaryDistinguishesSentencePunctuationFromPathPrefixes() {
+    let customHome = URL(fileURLWithPath: "/Network/Homes/alice")
+    let input =
+      "period \(customHome.path). next dash \(customHome.path)- next quote \"\(customHome.path)\" bang \(customHome.path)! question \(customHome.path)? hyphen-prefix \(customHome.path)-work underscore-prefix \(customHome.path)_test dot-prefix \(customHome.path).dev"
+    let output = EventLogger.sanitizeError(input, homeDirectory: customHome)
+
+    XCTAssertTrue(output.contains("period ~. next"))
+    XCTAssertTrue(output.contains("dash ~- next"))
+    XCTAssertTrue(output.contains("quote \"~\""))
+    XCTAssertTrue(output.contains("bang ~!"))
+    XCTAssertTrue(output.contains("question ~?"))
+    XCTAssertTrue(output.contains("hyphen-prefix \(customHome.path)-work"))
+    XCTAssertTrue(output.contains("underscore-prefix \(customHome.path)_test"))
+    XCTAssertTrue(output.contains("dot-prefix \(customHome.path).dev"))
+  }
+
   func testSanitizationRetainedScalarBoundFailsClosedForCombiningInput() {
     let input = "e" + String(repeating: "\u{0301}", count: 10_000)
     let output = EventLogger.sanitizeError(input)
