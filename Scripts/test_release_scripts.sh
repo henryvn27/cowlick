@@ -191,6 +191,70 @@ metadata_removal_line="$(grep -n 'rm -rf "\$HOME/Library/Application Support/Cow
 [[ -n "$purge_line" && -n "$metadata_removal_line" && "$purge_line" -lt "$metadata_removal_line" ]] \
   || { print -u2 -- "provider credentials are not purged before account metadata"; exit 1; }
 
+uninstall_home="$temporary_directory/uninstall-home"
+uninstall_fake_bin="$temporary_directory/uninstall-bin"
+uninstall_helper="$temporary_directory/uninstall-helper"
+mkdir -p "$uninstall_home/.codex" "$uninstall_home/Applications/Cowlick.app"
+mkdir -p "$uninstall_home/Library/Application Support/Cowlick"
+mkdir -p "$uninstall_home/Library/Preferences" "$uninstall_fake_bin"
+print -n -- '{"future":{"preserve":true},"hooks":{"Stop":[{"hooks":[{"type":"command","command":"/usr/local/bin/unrelated"}]}]}}' \
+  > "$uninstall_home/.codex/hooks.json"
+print -n -- '#!/bin/zsh\nexit 0\n' > "$uninstall_helper"
+chmod 755 "$uninstall_helper"
+print -n -- '#!/bin/zsh\nexit 1\n' > "$uninstall_fake_bin/pgrep"
+chmod 755 "$uninstall_fake_bin/pgrep"
+print -n -- 'preserve-local-state' \
+  > "$uninstall_home/Library/Application Support/Cowlick/preserved-state"
+print -n -- 'onboardingComplete=true' \
+  > "$uninstall_home/Library/Preferences/com.henryvn27.Cowlick.plist"
+print -n -- 'installed-app' > "$uninstall_home/Applications/Cowlick.app/marker"
+COWLICK_HOME="$uninstall_home" swift "$script_dir/install_hooks.swift" \
+  install --helper "$uninstall_helper" >/dev/null
+
+uninstall_hooks_hash="$(shasum -a 256 "$uninstall_home/.codex/hooks.json" | awk '{print $1}')"
+uninstall_helper_hash="$(shasum -a 256 \
+  "$uninstall_home/Library/Application Support/Cowlick/bin/cowlick-hook" | awk '{print $1}')"
+assert_uninstall_fixture_intact() {
+  [[ "$(shasum -a 256 "$uninstall_home/.codex/hooks.json" | awk '{print $1}')" \
+      == "$uninstall_hooks_hash" ]]
+  [[ "$(shasum -a 256 \
+      "$uninstall_home/Library/Application Support/Cowlick/bin/cowlick-hook" | awk '{print $1}')" \
+      == "$uninstall_helper_hash" ]]
+  [[ -L "$uninstall_home/.local/bin/cowlick-hook" ]]
+  [[ -f "$uninstall_home/Applications/Cowlick.app/marker" ]]
+}
+
+uninstall_help="$temporary_directory/uninstall-help.txt"
+env PATH="$uninstall_fake_bin:$PATH" HOME="$uninstall_home" COWLICK_HOME="$uninstall_home" \
+  TMPDIR="$temporary_directory" "$uninstall_script" --help > "$uninstall_help"
+grep -Fq 'usage:' "$uninstall_help"
+assert_uninstall_fixture_intact
+
+uninstall_unknown="$temporary_directory/uninstall-unknown.txt"
+if env PATH="$uninstall_fake_bin:$PATH" HOME="$uninstall_home" COWLICK_HOME="$uninstall_home" \
+  TMPDIR="$temporary_directory" "$uninstall_script" --unknown > "$uninstall_unknown" 2>&1; then
+  print -u2 -- "unknown uninstall argument unexpectedly performed an uninstall"
+  exit 1
+fi
+grep -Fq 'usage:' "$uninstall_unknown"
+assert_uninstall_fixture_intact
+
+env PATH="$uninstall_fake_bin:$PATH" HOME="$uninstall_home" COWLICK_HOME="$uninstall_home" \
+  TMPDIR="$temporary_directory" "$uninstall_script" >/dev/null
+[[ ! -e "$uninstall_home/Applications/Cowlick.app" ]]
+[[ ! -e "$uninstall_home/.local/bin/cowlick-hook" \
+  && ! -L "$uninstall_home/.local/bin/cowlick-hook" ]]
+[[ ! -e "$uninstall_home/Library/Application Support/Cowlick/bin/cowlick-hook" ]]
+grep -Fq '/usr/local/bin/unrelated' "$uninstall_home/.codex/hooks.json"
+if grep -Fq 'cowlick-hook' "$uninstall_home/.codex/hooks.json"; then
+  print -u2 -- "normal uninstall left a Cowlick hook entry"
+  exit 1
+fi
+grep -Fq 'preserve-local-state' \
+  "$uninstall_home/Library/Application Support/Cowlick/preserved-state"
+grep -Fq 'onboardingComplete=true' \
+  "$uninstall_home/Library/Preferences/com.henryvn27.Cowlick.plist"
+
 release_workflow="$project_root/.github/workflows/release.yml"
 provenance_script="$script_dir/verify_release_provenance.sh"
 package_script="$script_dir/package_release.sh"

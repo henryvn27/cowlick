@@ -83,4 +83,27 @@ COWLICK_TEST_HOOKS="$hooks_directory/hooks.json" swift -e '
   }
 '
 
+foreign_home="$temporary_directory/foreign-home"
+foreign_hooks="$foreign_home/.codex/hooks.json"
+foreign_installed_helper="$foreign_home/Library/Application Support/Cowlick/bin/cowlick-hook"
+mkdir -p "${foreign_hooks:h}" "${foreign_installed_helper:h}"
+print -n -- '{"custom":"preserve","hooks":{}}' > "$foreign_hooks"
+print -n -- 'foreign-helper' > "$foreign_installed_helper"
+foreign_hooks_hash="$(shasum -a 256 "$foreign_hooks" | awk '{print $1}')"
+foreign_helper_hash="$(shasum -a 256 "$foreign_installed_helper" | awk '{print $1}')"
+
+if COWLICK_HOME="$foreign_home" swift "$script_dir/install_hooks.swift" \
+  install --helper "$helper" >/dev/null 2>&1; then
+  print -u2 "installer replaced a foreign helper without an owned shim"
+  exit 1
+fi
+if COWLICK_HOME="$foreign_home" swift "$script_dir/install_hooks.swift" remove \
+  >/dev/null 2>&1; then
+  print -u2 "remover deleted a foreign helper without an owned shim"
+  exit 1
+fi
+[[ "$(shasum -a 256 "$foreign_hooks" | awk '{print $1}')" == "$foreign_hooks_hash" ]]
+[[ "$(shasum -a 256 "$foreign_installed_helper" | awk '{print $1}')" \
+    == "$foreign_helper_hash" ]]
+
 print "Hook installer smoke tests passed."

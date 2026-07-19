@@ -4,8 +4,17 @@ set -euo pipefail
 script_dir="${0:A:h}"
 project_root="${script_dir:h}"
 purge=false
-[[ "${1:-}" == "--purge" ]] && purge=true
-[[ $# -le 1 ]] || { print -u2 "usage: $0 [--purge]"; exit 2; }
+
+usage() {
+  print "usage: $0 [--purge]"
+}
+
+case "${1:-}" in
+  "") [[ $# == 0 ]] || { usage >&2; exit 2; } ;;
+  --purge) [[ $# == 1 ]] || { usage >&2; exit 2; }; purge=true ;;
+  -h|--help) [[ $# == 1 ]] || { usage >&2; exit 2; }; usage; exit 0 ;;
+  *) usage >&2; exit 2 ;;
+esac
 
 purge_tool_directory=""
 cleanup() {

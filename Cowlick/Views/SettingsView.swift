@@ -17,6 +17,7 @@ struct SettingsView: View {
   @State private var launchAtLogin = false
   @State private var launchError = ""
   @State private var confirmReset = false
+  @State private var integrationTaskInProgress = false
 
   var body: some View {
     @Bindable var settings = services.settings
@@ -71,6 +72,7 @@ struct SettingsView: View {
             Button("Remove Integration") { removeIntegration() }
             Button("Reveal Configuration") { revealHooks() }
           }
+          .disabled(integrationTaskInProgress)
           if !integrationMessage.isEmpty {
             Text(integrationMessage).font(.caption).foregroundStyle(.secondary)
           }
@@ -230,8 +232,11 @@ struct SettingsView: View {
   }
 
   private func installHooks() {
+    guard !integrationTaskInProgress else { return }
+    integrationTaskInProgress = true
     integrationMessage = "Installing…"
     Task {
+      defer { integrationTaskInProgress = false }
       let result = await Task.detached { () -> HookTaskResult in
         let installer = HookInstaller()
         do {
@@ -249,8 +254,11 @@ struct SettingsView: View {
   }
 
   private func removeIntegration() {
+    guard !integrationTaskInProgress else { return }
+    integrationTaskInProgress = true
     integrationMessage = "Removing…"
     Task {
+      defer { integrationTaskInProgress = false }
       let result = await Task.detached { () -> HookTaskResult in
         let installer = HookInstaller()
         do {

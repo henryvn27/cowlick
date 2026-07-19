@@ -8,6 +8,7 @@ enum InstallerFailure: LocalizedError {
   case invalidHooks
   case helperMissing
   case shimConflict
+  case helperConflict
   case configurationChanged
   case fileOperation(Int32)
 
@@ -19,6 +20,8 @@ enum InstallerFailure: LocalizedError {
     case .invalidHooks: "The existing hooks field must be a JSON object."
     case .helperMissing: "The specified Cowlick helper does not exist."
     case .shimConflict: "~/.local/bin/cowlick-hook exists and is not Cowlick's symlink."
+    case .helperConflict:
+      "The installed helper path is not owned by Cowlick. Move it aside before changing the integration."
     case .configurationChanged:
       "hooks.json changed during installation; no configuration was overwritten. Try again."
     case .fileOperation(let code): "A protected file operation failed (errno \(code))."
@@ -223,15 +226,41 @@ func withConfigurationLock<Result>(_ body: () throws -> Result) throws -> Result
   return try body()
 }
 
-func installHelper(from source: URL) throws {
+func pathExistsWithoutFollowingSymlinks(_ url: URL) -> Bool {
+  var information = stat()
+  return lstat(url.path, &information) == 0
+}
+
+func ownsHelper(shim helperShim: URL, installedHelper helper: URL) -> Bool {
+  (try? fileManager.destinationOfSymbolicLink(atPath: helperShim.path)) == helper.path
+}
+
+func helperMatchesSource(_ helper: URL, source: URL) -> Bool {
+  var information = stat()
+  guard lstat(helper.path, &information) == 0,
+    information.st_mode & S_IFMT == S_IFREG,
+    information.st_uid == getuid()
+  else { return false }
+  return fileManager.contentsEqual(atPath: helper.path, andPath: source.path)
+}
+
+func validateHelperInstallation(from source: URL) throws {
   guard fileManager.isExecutableFile(atPath: source.path) else {
     throw InstallerFailure.helperMissing
   }
-  if fileManager.fileExists(atPath: shim.path),
-    (try? fileManager.destinationOfSymbolicLink(atPath: shim.path)) != installedHelper.path
-  {
+  let ownsShim = ownsHelper(shim: shim, installedHelper: installedHelper)
+  if pathExistsWithoutFollowingSymlinks(shim), !ownsShim {
     throw InstallerFailure.shimConflict
   }
+  if pathExistsWithoutFollowingSymlinks(installedHelper), !ownsShim,
+    !helperMatchesSource(installedHelper, source: source)
+  {
+    throw InstallerFailure.helperConflict
+  }
+}
+
+func installHelper(from source: URL) throws {
+  try validateHelperInstallation(from: source)
   try fileManager.createDirectory(
     at: installedHelper.deletingLastPathComponent(), withIntermediateDirectories: true)
   try fileManager.createDirectory(
@@ -243,10 +272,8 @@ func installHelper(from source: URL) throws {
   defer { try? fileManager.removeItem(at: temporary) }
   try fileManager.copyItem(at: source, to: temporary)
   try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: temporary.path)
-  if fileManager.fileExists(atPath: installedHelper.path) {
-    _ = try fileManager.replaceItemAt(installedHelper, withItemAt: temporary)
-  } else {
-    try fileManager.moveItem(at: temporary, to: installedHelper)
+  guard rename(temporary.path, installedHelper.path) == 0 else {
+    throw InstallerFailure.fileOperation(errno)
   }
   if fileManager.fileExists(atPath: shim.path) {
     return
@@ -255,11 +282,20 @@ func installHelper(from source: URL) throws {
   }
 }
 
-func removeHelper(shim helperShim: URL, installedHelper helper: URL) throws {
-  if (try? fileManager.destinationOfSymbolicLink(atPath: helperShim.path)) == helper.path {
-    try fileManager.removeItem(at: helperShim)
+func validateHelperRemoval(shim helperShim: URL, installedHelper helper: URL) throws {
+  let ownsShim = ownsHelper(shim: helperShim, installedHelper: helper)
+  if pathExistsWithoutFollowingSymlinks(helperShim), !ownsShim {
+    throw InstallerFailure.shimConflict
   }
-  if fileManager.fileExists(atPath: helper.path) {
+  if pathExistsWithoutFollowingSymlinks(helper), !ownsShim {
+    throw InstallerFailure.helperConflict
+  }
+}
+
+func removeOwnedHelper(shim helperShim: URL, installedHelper helper: URL) throws {
+  guard ownsHelper(shim: helperShim, installedHelper: helper) else { return }
+  try fileManager.removeItem(at: helperShim)
+  if pathExistsWithoutFollowingSymlinks(helper) {
     try fileManager.removeItem(at: helper)
   }
 }
@@ -272,27 +308,32 @@ do {
     guard let helperFlag = arguments.firstIndex(of: "--helper"),
       arguments.indices.contains(helperFlag + 1)
     else { throw InstallerFailure.usage }
-    try installHelper(from: URL(fileURLWithPath: arguments[helperFlag + 1]))
+    let source = URL(fileURLWithPath: arguments[helperFlag + 1])
     try withConfigurationLock {
+      try validateHelperInstallation(from: source)
+      try validateHelperRemoval(shim: legacyShim, installedHelper: legacyInstalledHelper)
+      try installHelper(from: source)
       let existed = fileManager.fileExists(atPath: hooksURL.path)
       let existing = existed ? try Data(contentsOf: hooksURL) : Data("{}".utf8)
       let updated = try merge(existing)
       if updated != existing { try replaceHooks(with: updated, expected: existed ? existing : nil) }
+      try removeOwnedHelper(shim: legacyShim, installedHelper: legacyInstalledHelper)
     }
-    try removeHelper(shim: legacyShim, installedHelper: legacyInstalledHelper)
     print("Installed SessionStart, UserPromptSubmit, PermissionRequest, and Stop hooks.")
   case "remove":
     try withConfigurationLock {
-      guard fileManager.fileExists(atPath: hooksURL.path) else {
+      try validateHelperRemoval(shim: shim, installedHelper: installedHelper)
+      try validateHelperRemoval(shim: legacyShim, installedHelper: legacyInstalledHelper)
+      if fileManager.fileExists(atPath: hooksURL.path) {
+        let existing = try Data(contentsOf: hooksURL)
+        let updated = try remove(existing)
+        if updated != existing { try replaceHooks(with: updated, expected: existing) }
+      } else {
         print("No hooks file to update.")
-        return
       }
-      let existing = try Data(contentsOf: hooksURL)
-      let updated = try remove(existing)
-      if updated != existing { try replaceHooks(with: updated, expected: existing) }
+      try removeOwnedHelper(shim: shim, installedHelper: installedHelper)
+      try removeOwnedHelper(shim: legacyShim, installedHelper: legacyInstalledHelper)
     }
-    try removeHelper(shim: shim, installedHelper: installedHelper)
-    try removeHelper(shim: legacyShim, installedHelper: legacyInstalledHelper)
     print("Removed only Cowlick and legacy NotchRelay hook handlers.")
   case "status":
     let existing =
