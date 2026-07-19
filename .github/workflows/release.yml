@@ -49,7 +49,7 @@ jobs:
   release:
     needs: [provenance, validate]
     runs-on: macos-15
-    timeout-minutes: 45
+    timeout-minutes: 120
     environment: release
     permissions:
       contents: write
@@ -118,9 +118,15 @@ jobs:
           chmod 600 "$key"
           xcrun notarytool store-credentials cowlick-notary --key "$key" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER_ID" --keychain "$NOTARYTOOL_KEYCHAIN"
       - name: Resolve Developer ID identity
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           identity="$(security find-identity -v -p codesigning | sed -n 's/.*"\(Developer ID Application:[^"]*\)".*/\1/p' | head -1)"
           test -n "$identity"
+          [[ "$identity" == *"($APPLE_TEAM_ID)" ]] || {
+            printf 'Developer ID identity does not belong to Apple team %s\n' "$APPLE_TEAM_ID" >&2
+            exit 1
+          }
           echo "DEVELOPER_ID_APPLICATION=$identity" >> "$GITHUB_ENV"
       - name: Build, sign, notarize, and staple
         env:
@@ -128,6 +134,12 @@ jobs:
           NOTARYTOOL_PROFILE: cowlick-notary
           SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
         run: ./Scripts/create_release.sh "$RELEASE_VERSION"
+      - name: Require main to remain at the release commit
+        run: |
+          git fetch --no-tags origin '+refs/heads/main:refs/remotes/origin/main' --depth=1
+          ./Scripts/verify_release_provenance.sh \
+            '${{ needs.provenance.outputs.release_sha }}' \
+            refs/remotes/origin/main >/dev/null
       - name: Create or verify release tag
         run: |
           tag="v$RELEASE_VERSION"
@@ -152,6 +164,8 @@ jobs:
         run: |
           version="$RELEASE_VERSION"
           tag="v$version"
+          release_notes="$RUNNER_TEMP/Cowlick-$version-release-notes.md"
+          ./Scripts/release_notes.sh "$version" > "$release_notes"
           assets=(
             "build/release-$version/Cowlick-$version.dmg"
             "build/release-$version/Cowlick-$version.zip"
@@ -164,7 +178,7 @@ jobs:
               gh release upload "$tag" "${assets[@]}" --clobber
               gh release edit "$tag" \
                 --title "Cowlick $version" \
-                --notes-file CHANGELOG.md \
+                --notes-file "$release_notes" \
                 --draft=true \
                 --prerelease=false
               printf 'state=draft\n' >> "$GITHUB_OUTPUT"
@@ -176,7 +190,7 @@ jobs:
           else
             gh release create "$tag" "${assets[@]}" \
               --title "Cowlick $version" \
-              --notes-file CHANGELOG.md \
+              --notes-file "$release_notes" \
               --draft \
               --verify-tag
             printf 'state=draft\n' >> "$GITHUB_OUTPUT"
@@ -185,6 +199,8 @@ jobs:
         if: steps.release_state.outputs.state == 'draft'
         env:
           GH_TOKEN: ${{ github.token }}
+          DEVELOPMENT_TEAM: ${{ secrets.APPLE_TEAM_ID }}
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
         run: |
           version="$RELEASE_VERSION"
           tag="v$version"
@@ -203,37 +219,50 @@ jobs:
           [[ "$(gh release view "$tag" --json isDraft --jq .isDraft)" == true ]]
           gh release edit "$tag" --draft=false --prerelease=false --latest
       - name: Verify public downloads
+        env:
+          DEVELOPMENT_TEAM: ${{ secrets.APPLE_TEAM_ID }}
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
         run: |
           version="$RELEASE_VERSION"
           tag="v$version"
           public_directory="$RUNNER_TEMP/cowlick-public-$version"
           mkdir -p "$public_directory"
           base_url="https://github.com/henryvn27/cowlick/releases/download/$tag"
+          download() {
+            curl --fail --location --retry 5 --retry-delay 2 --retry-all-errors \
+              --retry-max-time 45 --connect-timeout 15 \
+              --proto '=https' --tlsv1.2 "$1" --output "$2"
+          }
           for asset in \
             "Cowlick-$version.dmg" \
             "Cowlick-$version.zip" \
             checksums.txt \
             appcast.xml; do
-            curl --fail --location --retry 5 --retry-delay 2 \
-              --proto '=https' --tlsv1.2 \
-              "$base_url/$asset" --output "$public_directory/$asset"
+            download "$base_url/$asset" "$public_directory/$asset"
           done
           ./Scripts/verify_release_artifacts.sh "$version" "$public_directory"
 
           latest_appcast="$public_directory/appcast-latest.xml"
-          for attempt in {1..6}; do
-            curl --fail --location --proto '=https' --tlsv1.2 \
+          latest_matches=false
+          for attempt in {1..8}; do
+            if download \
               "https://github.com/henryvn27/cowlick/releases/latest/download/appcast.xml" \
-              --output "$latest_appcast"
-            cmp -s "$public_directory/appcast.xml" "$latest_appcast" && break
-            (( attempt < 6 )) \
-              || { printf 'latest appcast did not match the release\n' >&2; exit 1; }
+              "$latest_appcast" \
+              && cmp -s "$public_directory/appcast.xml" "$latest_appcast"; then
+              latest_matches=true
+              break
+            fi
+            (( attempt < 8 )) || break
             sleep 5
           done
+          [[ "$latest_matches" == true ]] \
+            || { printf 'latest appcast did not match the release\n' >&2; exit 1; }
           cmp "$public_directory/appcast.xml" "$latest_appcast"
           ./Scripts/render_homebrew_cask.sh "$version" \
             "$public_directory/Cowlick-$version.dmg"
       - name: Verify Homebrew cask and installation
+        env:
+          DEVELOPMENT_TEAM: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           test_tap='cowlick/release-test'
           cleanup() {
@@ -248,35 +277,193 @@ jobs:
           brew audit --cask --strict "$test_tap/cowlick"
           brew install --cask "$test_tap/cowlick"
           app="/Applications/Cowlick.app"
-          test -d "$app"
-          codesign --verify --deep --strict --verbose=2 "$app"
-          spctl --assess --type execute --verbose=2 "$app"
-          lipo -verify_arch arm64 x86_64 "$app/Contents/MacOS/Cowlick"
-          lipo -verify_arch arm64 x86_64 "$app/Contents/Helpers/cowlick-hook"
-      - name: Update Homebrew tap
+          ./Scripts/release_verify_app.sh "$app" "$RELEASE_VERSION"
+      - name: Capture Homebrew tap state
         env:
           GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
         run: |
           endpoint='repos/henryvn27/homebrew-cowlick/contents/Casks/cowlick.rb'
-          existing_sha="$(gh api "$endpoint" --jq .sha 2>/dev/null || true)"
-          if [[ -n "$existing_sha" ]]; then
-            existing_cask="$RUNNER_TEMP/published-cowlick.rb"
-            gh api "$endpoint" --jq .content | tr -d '\n' | base64 -D > "$existing_cask"
-            if cmp -s Config/Homebrew/cowlick.rb "$existing_cask"; then
-              printf 'Homebrew cask already matches Cowlick %s.\n' "$RELEASE_VERSION"
+          snapshot="$RUNNER_TEMP/cowlick-tap-snapshot"
+          mkdir -p "$snapshot"
+          error_file="$snapshot/fetch-error"
+          if record="$(gh api "$endpoint" \
+            --jq '[.sha, (.content | gsub("\\n"; ""))] | @tsv' 2>"$error_file")"; then
+            printf 'present\n' > "$snapshot/state"
+            printf '%s\n' "${record%%$'\t'*}" > "$snapshot/sha"
+            printf '%s' "${record#*$'\t'}" | base64 -D > "$snapshot/cowlick.rb"
+          elif grep -Fq '(HTTP 404)' "$error_file"; then
+            printf 'absent\n' > "$snapshot/state"
+          else
+            cat "$error_file" >&2
+            exit 1
+          fi
+      - id: tap_update
+        name: Update Homebrew tap
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          endpoint='repos/henryvn27/homebrew-cowlick/contents/Casks/cowlick.rb'
+          snapshot="$RUNNER_TEMP/cowlick-tap-snapshot"
+          desired='Config/Homebrew/cowlick.rb'
+          snapshot_state="$(<"$snapshot/state")"
+          error_file="$snapshot/update-error"
+          current_state=absent
+          current_sha=''
+          if record="$(gh api "$endpoint" \
+            --jq '[.sha, (.content | gsub("\\n"; ""))] | @tsv' 2>"$error_file")"; then
+            current_state=present
+            current_sha="${record%%$'\t'*}"
+            printf '%s' "${record#*$'\t'}" | base64 -D > "$snapshot/current.rb"
+            if cmp -s "$desired" "$snapshot/current.rb"; then
+              printf 'changed=false\n' >> "$GITHUB_OUTPUT"
               exit 0
             fi
+          elif ! grep -Fq '(HTTP 404)' "$error_file"; then
+            cat "$error_file" >&2
+            exit 1
           fi
+
+          if [[ "$snapshot_state" == present ]]; then
+            [[ "$current_state" == present \
+              && "$current_sha" == "$(<"$snapshot/sha")" ]] || {
+              printf 'Homebrew tap changed after its release snapshot\n' >&2
+              exit 1
+            }
+          elif [[ "$current_state" != absent ]]; then
+            printf 'Homebrew tap changed after its release snapshot\n' >&2
+            exit 1
+          fi
+
           content="$(base64 < Config/Homebrew/cowlick.rb | tr -d '\n')"
           args=(-X PUT -f message="Update Cowlick to $RELEASE_VERSION" -f content="$content" -f branch=main)
-          if [[ -n "$existing_sha" ]]; then args+=(-f sha="$existing_sha"); fi
-          gh api "$endpoint" "${args[@]}"
-      - name: Return failed new release to draft
-        if: ${{ failure() && steps.release_state.outputs.state == 'draft' }}
+          if [[ "$current_state" == present ]]; then args+=(-f sha="$current_sha"); fi
+          : > "$snapshot/changed"
+          printf 'changed=true\n' >> "$GITHUB_OUTPUT"
+          if ! gh api "$endpoint" "${args[@]}" > "$snapshot/update-response" 2>"$error_file"; then
+            cat "$error_file" >&2
+          fi
+
+          published=false
+          for attempt in {1..6}; do
+            if record="$(gh api "$endpoint" \
+              --jq '[.sha, (.content | gsub("\\n"; ""))] | @tsv' 2>"$error_file")"; then
+              printf '%s' "${record#*$'\t'}" | base64 -D > "$snapshot/published.rb"
+              if cmp -s "$desired" "$snapshot/published.rb"; then
+                published=true
+                break
+              fi
+            fi
+            (( attempt < 6 )) || break
+            sleep 3
+          done
+          [[ "$published" == true ]] || {
+            cat "$error_file" >&2
+            printf 'Homebrew tap did not publish the verified cask\n' >&2
+            exit 1
+          }
+      - name: Verify canonical Homebrew installation
         env:
-          GH_TOKEN: ${{ github.token }}
+          DEVELOPMENT_TEAM: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          tag="v$RELEASE_VERSION"
-          gh release edit "$tag" --draft=true --latest=false
-          printf 'Cowlick %s returned to draft because a post-publication gate failed.\n' \
-            "$RELEASE_VERSION"
+          canonical_tap='henryvn27/cowlick'
+          cleanup() {
+            brew uninstall --cask cowlick >/dev/null 2>&1 || true
+            brew untap "$canonical_tap" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          brew uninstall --cask cowlick >/dev/null 2>&1 || true
+          brew untap "$canonical_tap" >/dev/null 2>&1 || true
+          brew tap "$canonical_tap"
+          tap_directory="$(brew --repository "$canonical_tap")"
+          cmp Config/Homebrew/cowlick.rb "$tap_directory/Casks/cowlick.rb"
+          brew audit --cask --strict "$canonical_tap/cowlick"
+          brew install --cask "$canonical_tap/cowlick"
+          ./Scripts/release_verify_app.sh /Applications/Cowlick.app "$RELEASE_VERSION"
+      - name: Restore failed publication state
+        if: ${{ failure() }}
+        env:
+          RELEASE_TOKEN: ${{ github.token }}
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          rollback_failed=false
+          snapshot="$RUNNER_TEMP/cowlick-tap-snapshot"
+          endpoint='repos/henryvn27/homebrew-cowlick/contents/Casks/cowlick.rb'
+
+          if [[ -f "$snapshot/changed" ]]; then
+            tap_restored=false
+            for attempt in {1..7}; do
+              error_file="$snapshot/restore-error"
+              current_state=absent
+              current_sha=''
+              if record="$(GH_TOKEN="$TAP_TOKEN" gh api "$endpoint" \
+                --jq '[.sha, (.content | gsub("\\n"; ""))] | @tsv' 2>"$error_file")"; then
+                current_state=present
+                current_sha="${record%%$'\t'*}"
+                printf '%s' "${record#*$'\t'}" | base64 -D > "$snapshot/current-restore.rb"
+              elif ! grep -Fq '(HTTP 404)' "$error_file"; then
+                cat "$error_file" >&2
+                sleep 3
+                continue
+              fi
+
+              if [[ "$current_state" == present ]] \
+                && ! cmp -s Config/Homebrew/cowlick.rb "$snapshot/current-restore.rb" \
+                && { [[ "$(<"$snapshot/state")" != present ]] \
+                  || ! cmp -s "$snapshot/cowlick.rb" "$snapshot/current-restore.rb"; }; then
+                printf 'Homebrew tap changed after Cowlick published its cask; refusing to overwrite it\n' >&2
+                break
+              fi
+
+              if [[ "$(<"$snapshot/state")" == present ]]; then
+                if [[ "$current_state" == present ]] \
+                  && cmp -s "$snapshot/cowlick.rb" "$snapshot/current-restore.rb"; then
+                  tap_restored=true
+                  break
+                fi
+                content="$(base64 < "$snapshot/cowlick.rb" | tr -d '\n')"
+                args=(-X PUT -f message="Restore Cowlick cask after failed release" \
+                  -f content="$content" -f branch=main)
+                if [[ "$current_state" == present ]]; then args+=(-f sha="$current_sha"); fi
+                GH_TOKEN="$TAP_TOKEN" gh api "$endpoint" "${args[@]}" \
+                  > "$snapshot/restore-response" 2>"$error_file" || true
+              elif [[ "$current_state" == absent ]]; then
+                tap_restored=true
+                break
+              else
+                GH_TOKEN="$TAP_TOKEN" gh api "$endpoint" -X DELETE \
+                  -f message="Remove Cowlick cask after failed release" \
+                  -f sha="$current_sha" -f branch=main \
+                  > "$snapshot/restore-response" 2>"$error_file" || true
+              fi
+              sleep 3
+            done
+            if [[ "$tap_restored" != true ]]; then
+              printf 'Homebrew tap could not be restored after its retry window\n' >&2
+              rollback_failed=true
+            fi
+          fi
+
+          if [[ '${{ steps.release_state.outputs.state }}' == draft ]]; then
+            tag="v$RELEASE_VERSION"
+            release_demoted=false
+            for attempt in {1..6}; do
+              GH_TOKEN="$RELEASE_TOKEN" gh release edit "$tag" \
+                --draft=true --latest=false >/dev/null 2>&1 || true
+              if [[ "$(GH_TOKEN="$RELEASE_TOKEN" gh release view "$tag" \
+                --json isDraft --jq .isDraft 2>/dev/null || true)" == true ]]; then
+                release_demoted=true
+                break
+              fi
+              sleep 3
+            done
+            if [[ "$release_demoted" == true ]]; then
+              printf 'Cowlick %s returned to draft after a failed publication gate.\n' \
+                "$RELEASE_VERSION"
+            else
+              printf 'Cowlick %s could not be returned to draft after six attempts.\n' \
+                "$RELEASE_VERSION" >&2
+              rollback_failed=true
+            fi
+          fi
+
+          [[ "$rollback_failed" == false ]]

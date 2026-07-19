@@ -14,6 +14,36 @@ grep -Fq 'requires_signed_feed' "$script_dir/release_preflight.sh"
 grep -Fq 'export method must be developer-id' "$script_dir/release_preflight.sh"
 grep -Fq 'CHANGELOG.md has no release section' "$script_dir/release_preflight.sh"
 
+release_notes="$temporary_directory/release-notes.md"
+"$script_dir/release_notes.sh" 1.0.0 > "$release_notes"
+grep -Eq '^## 1\.0\.0$' "$release_notes"
+[[ "$(grep -c '^## ' "$release_notes")" == 1 ]]
+if grep -Fq '## Unreleased' "$release_notes"; then
+  print -u2 -- "version-scoped release notes included the Unreleased section"
+  exit 1
+fi
+if "$script_dir/release_notes.sh" 9.9.9 >/dev/null 2>&1; then
+  print -u2 -- "missing release-notes section unexpectedly passed"
+  exit 1
+fi
+
+fake_bin="$temporary_directory/fake-bin"
+mkdir -p "$fake_bin"
+/usr/bin/printf '%s\n' \
+  '#!/bin/sh' \
+  'printf "%s\n" "Identifier=com.henryvn27.Cowlick"' \
+  'printf "%s\n" "CodeDirectory v=20500 flags=0x10000(runtime)"' \
+  'printf "%s\n" "Authority=Developer ID Application: Cowlick Test (TESTTEAM00)"' \
+  'printf "%s\n" "TeamIdentifier=TESTTEAM00"' \
+  > "$fake_bin/codesign"
+chmod 755 "$fake_bin/codesign"
+PATH="$fake_bin:$PATH" zsh -c '
+  set -euo pipefail
+  source "$1"
+  verify_code_identity /tmp/Cowlick.app Cowlick.app \
+    "Developer ID Application: Cowlick Test (TESTTEAM00)" TESTTEAM00
+' zsh "$script_dir/release_common.sh"
+
 for invalid_version in \
   '' '../1.0.0' 'v1.0.0' '01.0.0' '1.0' '1.0.0-beta.1' '1.0.0+4' '1.0.0/escape'; do
   if validate_release_version "$invalid_version" >/dev/null 2>&1; then
@@ -78,8 +108,12 @@ metadata_removal_line="$(grep -n 'rm -rf "\$HOME/Library/Application Support/Cow
 release_workflow="$project_root/.github/workflows/release.yml"
 provenance_script="$script_dir/verify_release_provenance.sh"
 package_script="$script_dir/package_release.sh"
+artifact_verifier="$script_dir/verify_release_artifacts.sh"
+create_release_script="$script_dir/create_release.sh"
 grep -Fq 'derived_data="$project_root/DerivedData"' "$package_script"
 grep -Fq -- '-derivedDataPath "$derived_data"' "$package_script"
+grep -Fq '"$script_dir/verify_release_artifacts.sh" "$version" "$output"' \
+  "$create_release_script"
 grep -Fq 'workflow_dispatch:' "$release_workflow"
 grep -Fq 'workflow_call:' "$project_root/.github/workflows/ci.yml"
 if grep -Fq "tags: ['v*']" "$release_workflow"; then
@@ -94,8 +128,12 @@ grep -Fq "git fetch --no-tags origin '+refs/heads/main:refs/remotes/origin/main'
   "$release_workflow"
 grep -Fq './Scripts/verify_release_provenance.sh "$GITHUB_SHA" refs/remotes/origin/main' \
   "$release_workflow"
+grep -Fq 'name: Require main to remain at the release commit' "$release_workflow"
+grep -Fq "'\${{ needs.provenance.outputs.release_sha }}'" "$release_workflow"
 grep -Fq 'gh release view "$tag"' "$release_workflow"
 grep -Fq 'gh release upload "$tag" "${assets[@]}" --clobber' "$release_workflow"
+grep -Fq './Scripts/release_notes.sh "$version"' "$release_workflow"
+grep -Fq -- '--notes-file "$release_notes"' "$release_workflow"
 grep -Fq "if: steps.release_state.outputs.state == 'draft'" "$release_workflow"
 grep -Fq 'gh release edit "$tag" --draft=false --prerelease=false --latest' "$release_workflow"
 grep -Fq './Scripts/verify_release_artifacts.sh "$version" "$draft_directory"' \
@@ -103,11 +141,17 @@ grep -Fq './Scripts/verify_release_artifacts.sh "$version" "$draft_directory"' \
 grep -Fq './Scripts/verify_release_artifacts.sh "$version" "$public_directory"' \
   "$release_workflow"
 grep -Fq 'releases/latest/download/appcast.xml' "$release_workflow"
+grep -Fq -- '--retry-all-errors' "$release_workflow"
 grep -Fq 'brew audit --cask --strict "$test_tap/cowlick"' "$release_workflow"
 grep -Fq 'brew install --cask "$test_tap/cowlick"' "$release_workflow"
-grep -Fq 'cmp -s Config/Homebrew/cowlick.rb "$existing_cask"' "$release_workflow"
-grep -Fq 'lipo -verify_arch arm64 x86_64 "$app/Contents/Helpers/cowlick-hook"' \
+grep -Fq 'name: Capture Homebrew tap state' "$release_workflow"
+grep -Fq 'name: Verify canonical Homebrew installation' "$release_workflow"
+grep -Fq "canonical_tap='henryvn27/cowlick'" "$release_workflow"
+grep -Fq 'cmp Config/Homebrew/cowlick.rb "$tap_directory/Casks/cowlick.rb"' \
   "$release_workflow"
+grep -Fq 'brew install --cask "$canonical_tap/cowlick"' "$release_workflow"
+grep -Fq './Scripts/release_verify_app.sh /Applications/Cowlick.app' "$release_workflow"
+grep -Fq 'timeout-minutes: 120' "$release_workflow"
 grep -Fq 'contents: read' "$release_workflow"
 if grep -Fq 'git merge-base --is-ancestor HEAD origin/main' "$release_workflow"; then
   print -u2 -- "release workflow still permits a stale main ancestor"
@@ -116,21 +160,55 @@ fi
 publish_line="$(grep -n 'name: Publish verified GitHub release' "$release_workflow" | cut -d: -f1)"
 public_verify_line="$(grep -n 'name: Verify public downloads' "$release_workflow" | cut -d: -f1)"
 homebrew_verify_line="$(grep -n 'name: Verify Homebrew cask and installation' "$release_workflow" | cut -d: -f1)"
+homebrew_snapshot_line="$(grep -n 'name: Capture Homebrew tap state' "$release_workflow" | cut -d: -f1)"
 homebrew_line="$(grep -n 'name: Update Homebrew tap' "$release_workflow" | cut -d: -f1)"
-rollback_line="$(grep -n 'name: Return failed new release to draft' "$release_workflow" | cut -d: -f1)"
+canonical_homebrew_line="$(grep -n 'name: Verify canonical Homebrew installation' "$release_workflow" | cut -d: -f1)"
+rollback_line="$(grep -n 'name: Restore failed publication state' "$release_workflow" | cut -d: -f1)"
+main_recheck_line="$(grep -n 'name: Require main to remain at the release commit' "$release_workflow" | cut -d: -f1)"
+tag_line="$(grep -n 'name: Create or verify release tag' "$release_workflow" | cut -d: -f1)"
+(( main_recheck_line < tag_line )) \
+  || { print -u2 -- "main provenance is not rechecked before tag mutation"; exit 1; }
 (( publish_line < public_verify_line \
   && public_verify_line < homebrew_verify_line \
-  && homebrew_verify_line < homebrew_line \
-  && homebrew_line < rollback_line )) \
+  && homebrew_verify_line < homebrew_snapshot_line \
+  && homebrew_snapshot_line < homebrew_line \
+  && homebrew_line < canonical_homebrew_line \
+  && canonical_homebrew_line < rollback_line )) \
   || { print -u2 -- "release publication steps are out of order"; exit 1; }
 [[ "$(tail -n +"$rollback_line" "$release_workflow" | grep -c '^[[:space:]]*- name:')" == 1 ]] \
   || { print -u2 -- "release rollback is not the final workflow step"; exit 1; }
-grep -Fq "failure() && steps.release_state.outputs.state == 'draft'" "$release_workflow"
-grep -Fq 'gh release edit "$tag" --draft=true --latest=false' "$release_workflow"
+grep -Fq 'if: ${{ failure() }}' "$release_workflow"
+grep -Fq -- '--draft=true --latest=false' "$release_workflow"
+grep -Fq ': > "$snapshot/changed"' "$release_workflow"
+grep -Fq 'if [[ -f "$snapshot/changed" ]]' "$release_workflow"
+grep -Fq 'Restore Cowlick cask after failed release' "$release_workflow"
+grep -Fq 'Remove Cowlick cask after failed release' "$release_workflow"
+grep -Fq 'refusing to overwrite it' "$release_workflow"
+grep -Fq 'release_demoted=true' "$release_workflow"
+changed_line="$(grep -nF "printf 'changed=true" "$release_workflow" | cut -d: -f1)"
+tap_put_line="$(grep -nF 'if ! gh api "$endpoint" "${args[@]}"' "$release_workflow" | cut -d: -f1)"
+[[ -n "$changed_line" && -n "$tap_put_line" && "$changed_line" -lt "$tap_put_line" ]] \
+  || { print -u2 -- "tap rollback ownership is not recorded before mutation"; exit 1; }
 if grep -A8 -F 'state=published' "$release_workflow" | grep -Fq -- '--clobber'; then
   print -u2 -- "published release path can overwrite assets"
   exit 1
 fi
+
+for required_check in \
+  'com.henryvn27.Cowlick' \
+  'TeamIdentifier=' \
+  'flags=.*runtime' \
+  'appcast enclosure URL is incorrect' \
+  'appcast enclosure length is incorrect' \
+  'appcast build version is incorrect' \
+  'appcast marketing version is incorrect' \
+  'appcast archive signature is missing' \
+  '--verify --ed-key-file - "$appcast"' \
+  '--verify --ed-key-file - "$zip" "$enclosure_signature"' \
+  'ZIP and DMG contain different Cowlick.app builds'; do
+  grep -Fq -- "$required_check" "$artifact_verifier" "$script_dir/release_common.sh" \
+    || { print -u2 -- "release verifier omitted: $required_check"; exit 1; }
+done
 
 repository="$temporary_directory/provenance"
 git init -q -b main "$repository"
