@@ -751,12 +751,19 @@ env PATH="$wrapper_fake_bin:$PATH" HOME="$restore_failure_home" \
   COWLICK_HOME="$restore_failure_home" TMPDIR="$temporary_directory" \
   COWLICK_TEST_REAL_SWIFT="$real_swift" COWLICK_TEST_HELPER_MARKER=before-restore-failure \
   "$wrapper_scripts/install_local.sh" >/dev/null
-if env PATH="$wrapper_fake_bin:$PATH" HOME="$restore_failure_home" \
+restore_failure_status=0
+env PATH="$wrapper_fake_bin:$PATH" HOME="$restore_failure_home" \
   COWLICK_HOME="$restore_failure_home" TMPDIR="$temporary_directory" \
   COWLICK_TEST_REAL_SWIFT="$real_swift" COWLICK_TEST_HELPER_MARKER=failed-restore \
   COWLICK_TEST_VERIFY_FAIL=1 COWLICK_TEST_RESTORE_FAIL=1 \
-  "$wrapper_scripts/install_local.sh" > "$restore_failure_output" 2>&1; then
+  "$wrapper_scripts/install_local.sh" > "$restore_failure_output" 2>&1 \
+  || restore_failure_status=$?
+if (( restore_failure_status == 0 )); then
   print -u2 "local install unexpectedly survived forced integration restore failure"
+  exit 1
+fi
+if (( restore_failure_status != 1 )); then
+  print -u2 -- "local install replaced verify exit 1 with rollback exit $restore_failure_status"
   exit 1
 fi
 grep -Fq 'forced integration restore failure' "$restore_failure_output"
@@ -776,6 +783,18 @@ grep -Fq 'before-restore-failure' \
   "$restore_failure_home/Applications/Cowlick.app/Contents/Helpers/cowlick-hook"
 grep -Fq 'failed-restore' \
   "$restore_failure_home/Library/Application Support/Cowlick/bin/cowlick-hook"
+retained_helper_hash="$(shasum -a 256 "$retained_snapshot/cowlick-hook" | awk '{print $1}')"
+COWLICK_HOME="$restore_failure_home" "$real_swift" \
+  "$wrapper_scripts/install_hooks.swift" restore --snapshot "$retained_snapshot" >/dev/null
+assert_integration_installed "$restore_failure_home"
+[[ "$(shasum -a 256 \
+    "$restore_failure_home/Library/Application Support/Cowlick/bin/cowlick-hook" \
+    | awk '{print $1}')" == "$retained_helper_hash" ]]
+grep -Fq 'before-restore-failure' \
+  "$restore_failure_home/Library/Application Support/Cowlick/bin/cowlick-hook"
+[[ "$(readlink "$restore_failure_home/.local/bin/cowlick-hook")" \
+    == "$restore_failure_home/Library/Application Support/Cowlick/bin/cowlick-hook" ]]
+[[ -d "$retained_snapshot" && -s "$retained_snapshot/hooks.json" ]]
 
 legacy_cleanup_home="$temporary_directory/wrapper-legacy-cleanup-home"
 legacy_cleanup_output="$temporary_directory/wrapper-legacy-cleanup-output"
