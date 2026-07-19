@@ -528,6 +528,11 @@ final class EventLogger {
       if kind == .bearer, isExplicitValueTerminator(scalar) { break }
       if CharacterSet.whitespacesAndNewlines.contains(scalar) {
         let nextField = skipWhitespace(in: scalars, from: end)
+        if kind == .authorization {
+          end = nextField
+          isAtValueBoundary = true
+          continue
+        }
         if nextField < scalars.count,
           isQuote(scalars[nextField])
             || isUnicodeQuoteMarker(scalars[nextField])

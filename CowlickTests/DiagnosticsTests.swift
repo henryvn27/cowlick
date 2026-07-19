@@ -36,7 +36,7 @@ final class DiagnosticsTests: XCTestCase {
     XCTAssertFalse(output.contains("\u{E000}"))
     XCTAssertTrue(output.contains("~/private"))
     XCTAssertTrue(output.contains("authorization=<redacted>"))
-    XCTAssertTrue(output.contains("OPENAI_API_KEY=<redacted>"))
+    XCTAssertFalse(output.contains("OPENAI_API_KEY"))
     XCTAssertFalse(
       EventLogger.sanitizeProject("token=x\u{E000}sk\u{001B}-live").contains("sk-live"))
   }
@@ -496,11 +496,11 @@ final class DiagnosticsTests: XCTestCase {
     )
     XCTAssertEqual(
       EventLogger.sanitizeError("Authorization: Bearer auth.value api.key: field.value"),
-      "authorization=<redacted> api.key=<redacted>"
+      "authorization=<redacted>"
     )
     XCTAssertEqual(
       EventLogger.sanitizeError("Authorization: Bearer auth.value API key: field.value"),
-      "authorization=<redacted> API key=<redacted>"
+      "authorization=<redacted>"
     )
     XCTAssertEqual(
       EventLogger.sanitizeError("Bearer auth.value api.key: field.value"),
@@ -544,8 +544,18 @@ final class DiagnosticsTests: XCTestCase {
       EventLogger.sanitizeError(
         "Authorization: AWS4-HMAC-SHA256 Credential=AKIAEXAMPLE/request, SignedHeaders=host;x-amz-date, Signature=deadbeef api.key: following-secret"
       ),
-      "authorization=<redacted> api.key=<redacted>"
+      "authorization=<redacted>"
     )
+    for input in [
+      "Authorization: Digest token=abc123, response=feedface",
+      "Authorization: AWS4-HMAC-SHA256 Credential=AKIAEXAMPLE/request, SignedHeaders=host;x-amz-date, Signature=deadbeef token=abc123, response=feedface",
+    ] {
+      let output = EventLogger.sanitizeError(input)
+      XCTAssertEqual(output, "authorization=<redacted>")
+      for secret in ["abc123", "feedface", "response", "Signature", "deadbeef"] {
+        XCTAssertFalse(output.contains(secret), output)
+      }
+    }
     XCTAssertEqual(
       EventLogger.sanitizeError("Bearer bearer.secret; public, text"),
       "bearer=<redacted>; public, text"
@@ -569,7 +579,7 @@ final class DiagnosticsTests: XCTestCase {
       EventLogger.sanitizeError(
         "Authorization: Bearer «first API key: inner.secret, tail» api.key: field.value"
       ),
-      "authorization=<redacted> api.key=<redacted>"
+      "authorization=<redacted>"
     )
 
     for input in [
