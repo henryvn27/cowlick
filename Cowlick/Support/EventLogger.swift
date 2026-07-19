@@ -171,8 +171,21 @@ final class EventLogger {
     endingAt end: Int
   ) -> Bool {
     var identifierEnd = end
-    if end > 0, isCredentialLabelQuote(scalars[end - 1]) {
-      identifierEnd -= 1
+    if let terminatorStart = credentialLabelTerminatorStart(in: scalars, endingAt: end) {
+      identifierEnd = terminatorStart
+      while true {
+        var previousEnd = identifierEnd
+        while previousEnd > 0,
+          CharacterSet.whitespacesAndNewlines.contains(scalars[previousEnd - 1])
+        {
+          previousEnd -= 1
+        }
+        guard
+          let previousStart = credentialLabelTerminatorStart(
+            in: scalars, endingAt: previousEnd)
+        else { break }
+        identifierEnd = previousStart
+      }
     }
     var labelStart = identifierEnd
     while labelStart > 0, isIdentifierScalar(scalars[labelStart - 1]) {
@@ -182,11 +195,9 @@ final class EventLogger {
       normalizedIdentifier(scalars[labelStart..<identifierEnd]) == "bearer"
     else { return false }
 
-    var tokenStart = labelStart
-    if identifierEnd < end {
-      guard labelStart > 0, isCredentialLabelQuote(scalars[labelStart - 1]) else { return false }
-      tokenStart -= 1
-    }
+    let tokenStart =
+      labelStart > 0 && isCredentialLabelQuote(scalars[labelStart - 1])
+      ? labelStart - 1 : labelStart
     guard tokenStart > 0 else { return true }
     let precedingScalar = scalars[tokenStart - 1]
     return !isIdentifierScalar(precedingScalar)
@@ -325,16 +336,23 @@ final class EventLogger {
         identifierEnd += 1
       }
       var afterIdentifier = identifierEnd
-      if quote != nil, afterIdentifier < scalars.count,
-        isCredentialLabelQuote(scalars[afterIdentifier])
-      {
-        afterIdentifier += 1
+      while let terminatorEnd = credentialLabelTerminatorEnd(in: scalars, from: afterIdentifier) {
+        afterIdentifier = terminatorEnd
+        let nextMarker = skipWhitespace(in: scalars, from: afterIdentifier)
+        guard
+          let nextTerminatorEnd = credentialLabelTerminatorEnd(in: scalars, from: nextMarker),
+          nextTerminatorEnd == scalars.count
+            || CharacterSet.whitespacesAndNewlines.contains(scalars[nextTerminatorEnd])
+            || isCredentialDelimiter(scalars[nextTerminatorEnd])
+            || credentialLabelTerminatorEnd(in: scalars, from: nextTerminatorEnd) != nil
+        else { break }
+        afterIdentifier = nextMarker
       }
 
       let identifier = scalars[identifierStart..<identifierEnd]
       let whitespaceEnd = skipWhitespace(in: scalars, from: afterIdentifier)
       let hasDelimitedValue =
-        whitespaceEnd < scalars.count && isCredentialDelimiter(scalars[whitespaceEnd])
+        credentialDelimiter(in: scalars, afterLabelAt: identifierEnd) != nil
       if whitespaceEnd > afterIdentifier, !hasDelimitedValue, isBearerIdentifier(identifier),
         let valueEnd = protectedValueEnd(in: scalars, from: whitespaceEnd, kind: .bearer)
       {
@@ -386,6 +404,41 @@ final class EventLogger {
       end += 1
     }
     return end
+  }
+
+  private static func credentialDelimiter(
+    in scalars: [UnicodeScalar],
+    afterLabelAt start: Int
+  ) -> Int? {
+    var end = start
+    while true {
+      end = skipWhitespace(in: scalars, from: end)
+      guard let terminatorEnd = credentialLabelTerminatorEnd(in: scalars, from: end) else { break }
+      end = terminatorEnd
+    }
+    return end < scalars.count && isCredentialDelimiter(scalars[end]) ? end : nil
+  }
+
+  private static func credentialLabelTerminatorEnd(
+    in scalars: [UnicodeScalar],
+    from start: Int
+  ) -> Int? {
+    guard start < scalars.count else { return nil }
+    if isCredentialLabelQuote(scalars[start]) { return start + 1 }
+    if scalars[start].value == 0x5C, start + 1 < scalars.count,
+      isCredentialLabelQuote(scalars[start + 1])
+    {
+      return start + 2
+    }
+    return nil
+  }
+
+  private static func credentialLabelTerminatorStart(
+    in scalars: [UnicodeScalar],
+    endingAt end: Int
+  ) -> Int? {
+    guard end > 0, isCredentialLabelQuote(scalars[end - 1]) else { return nil }
+    return end > 1 && scalars[end - 2].value == 0x5C ? end - 2 : end - 1
   }
 
   private static func credentialValueEnd(in scalars: [UnicodeScalar], from start: Int) -> Int? {
@@ -528,13 +581,7 @@ final class EventLogger {
     var afterWord = identifierEnd
     while true {
       let next = skipWhitespace(in: scalars, from: afterWord)
-      let delimiter =
-        if next < scalars.count, isCredentialLabelQuote(scalars[next]) {
-          skipWhitespace(in: scalars, from: next + 1)
-        } else {
-          next
-        }
-      if delimiter < scalars.count, isCredentialDelimiter(scalars[delimiter]) {
+      if let delimiter = credentialDelimiter(in: scalars, afterLabelAt: afterWord) {
         var normalized = ""
         for word in words.reversed() {
           normalized = normalizedIdentifier(scalars[word]) + normalized

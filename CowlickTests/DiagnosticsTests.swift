@@ -283,6 +283,54 @@ final class DiagnosticsTests: XCTestCase {
     }
   }
 
+  func testRepeatedAndEscapedCredentialLabelTerminatorsRequireDelimiters() {
+    for (input, expected) in [
+      ("\"token\"\"=sk-ascii", "token=<redacted>"),
+      ("token\"\"=sk-unwrapped", "token=<redacted>"),
+      ("“token””＝sk-smart", "token=<redacted>"),
+      ("「API key」」：sk-cjk", "API key=<redacted>"),
+      ("token“”=sk-mixed", "token=<redacted>"),
+      ("\"token\"”\\\"=sk-repeated-mixed", "token=<redacted>"),
+      ("token” ” \\\" =sk-spaced-mixed", "token=<redacted>"),
+    ] {
+      XCTAssertEqual(EventLogger.sanitizeError(input), expected)
+    }
+
+    let longQuoteRun = "token" + String(repeating: "\"", count: 1_024) + "=sk-long"
+    XCTAssertEqual(EventLogger.sanitizeError(longQuoteRun), "token=<redacted>")
+
+    for input in [
+      "\"Bearer\"\"\nsk-bare-ascii",
+      "“Bearer””\nsk-bare-smart",
+      "\"Bearer\"”\\\"\nsk-bare-mixed",
+      "“Bearer” ”\nsk-bare-spaced",
+    ] {
+      XCTAssertEqual(EventLogger.sanitizeError(input), "bearer=<redacted>")
+    }
+
+    for (input, secret) in [
+      (#"payload={\"api.key\":\"sk-api-secret\"}"#, "sk-api-secret"),
+      (#"{\"token\":\"sk-token-secret\"}"#, "sk-token-secret"),
+      (#"\"API key\" : sk-spaced-secret"#, "sk-spaced-secret"),
+    ] {
+      let output = EventLogger.sanitizeError(input)
+      XCTAssertTrue(output.contains("<redacted>"), output)
+      XCTAssertFalse(output.contains(secret), output)
+    }
+
+    for prose in [
+      "token\"\" prose",
+      "token\\\" prose",
+      "\"API key\"x=public",
+      #"\"API key\" prose"#,
+      #"payload={\"api.key\"x:\"public\"}"#,
+      "“token”” prose",
+      "token” ” prose",
+    ] {
+      XCTAssertEqual(EventLogger.sanitizeError(prose), prose)
+    }
+  }
+
   func testFullwidthCredentialDelimitersRemainBoundedToSensitiveLabels() {
     for (input, expected) in [
       ("token：direct.secret", "token=<redacted>"),
