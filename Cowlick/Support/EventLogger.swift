@@ -649,6 +649,7 @@ final class EventLogger {
     var quote: UnicodeScalar?
     var quoteAllowsEscapes = false
     var isAtValueBoundary = true
+    var sensitiveFieldScanSkipUntil = start
     while end < scalars.count {
       let scalar = scalars[end]
       if let activeQuote = quote {
@@ -700,7 +701,13 @@ final class EventLogger {
           isAtValueBoundary = true
           continue
         }
-        if let field = isSensitiveField(in: scalars, from: nextField) {
+        let fieldScan =
+          nextField < sensitiveFieldScanSkipUntil
+          ? nil : credentialLabelScan(in: scalars, from: nextField)
+        if let fieldScan {
+          sensitiveFieldScanSkipUntil = max(sensitiveFieldScanSkipUntil, fieldScan.end)
+        }
+        if let field = fieldScan?.field {
           var boundary = field.replacementStart
           while boundary > start,
             CharacterSet.whitespacesAndNewlines.contains(scalars[boundary - 1])
@@ -717,13 +724,6 @@ final class EventLogger {
       end += 1
     }
     return end > start ? end : nil
-  }
-
-  private static func isSensitiveField(
-    in scalars: [UnicodeScalar],
-    from start: Int
-  ) -> SensitiveField? {
-    credentialLabelScan(in: scalars, from: start)?.field
   }
 
   private static func credentialLabelScan(

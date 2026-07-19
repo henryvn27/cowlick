@@ -727,6 +727,13 @@ final class DiagnosticsTests: XCTestCase {
     }
   }
 
+  func testBearerProtectedValueFieldScanningRemainsLinearForRepeatedCandidates() {
+    let input = "Bearer: value " + String(repeating: "token ", count: 500) + "visible"
+    measure(metrics: [XCTClockMetric()]) {
+      XCTAssertEqual(EventLogger.sanitizeError(input), "Bearer=<redacted>")
+    }
+  }
+
   func testStructuredAuthorizationValuesRemainOpaqueAcrossDelimiters() {
     let aws = EventLogger.sanitizeError(
       "Authorization: AWS4-HMAC-SHA256 Credential=AKIAEXAMPLE/20260719/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-date, Signature=deadbeef"
