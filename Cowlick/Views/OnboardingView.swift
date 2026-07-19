@@ -22,6 +22,8 @@ struct OnboardingView: View {
   @State private var integrationInstallState = IntegrationInstallState.notStarted
   @State private var integrationTrust = CodexHookTrustReport.notChecked
   @State private var capsStatus = "Optional"
+  @State private var integrationTestStatus = "Not tested"
+  @State private var integrationTestInProgress = false
   @State private var testConfirmed = false
 
   private let totalSteps = 7
@@ -95,7 +97,7 @@ struct OnboardingView: View {
       icon: nil,
       title: "Codex status, at the notch.",
       detail:
-        "Cowlick shows work, approvals, completion, and failures around the MacBook notch. Other displays use a compact island."
+        "Cowlick shows work, approvals, and completion around the MacBook notch. Other displays use a compact island."
     )
   }
 
@@ -163,13 +165,21 @@ struct OnboardingView: View {
         icon: "rectangle.topthird.inset.filled",
         title: "Try the island.",
         detail:
-          "Run a local visual event, then confirm it appeared. This does not contact Codex or use private data."
+          "Cowlick will run its installed helper through the authenticated local bridge, then show working and completion without using private data."
       )
       HStack {
-        Button("Test Working") { services.sessionStore.testState(.working) }
-        Button("Test Approval") { services.sessionStore.testState(.approvalRequested) }
-        Button("Test Completed") { services.sessionStore.testState(.completed) }
+        Button(integrationTestInProgress ? "Testing…" : "Test Integration") {
+          Task { await runIntegrationTest() }
+        }
+        .disabled(
+          integrationTestInProgress || services.sessionStore.integrationSelfTestInProgress
+            || !services.sessionStore.canPreviewTestStates)
+        Button("Preview Approval") { services.sessionStore.testState(.approvalRequested) }
+          .disabled(!services.sessionStore.canPreviewTestStates)
       }
+      Text(integrationTestStatus)
+        .font(.caption)
+        .foregroundStyle(.secondary)
       Toggle("I can see the island", isOn: $testConfirmed)
         .toggleStyle(.checkbox)
     }
@@ -240,6 +250,9 @@ struct OnboardingView: View {
     }.value
     integrationStatus = result.status
     integrationInstallState = result.succeeded ? .installed : .failed
+    if result.succeeded {
+      services.settings.integrationIntentionallyRemoved = false
+    }
     integrationTrust = await services.hookTrustService.inspect()
   }
 
@@ -269,6 +282,100 @@ struct OnboardingView: View {
       capsStatus = result == .available ? "Native HID signal test passed" : result.summary
       services.settings.capsLockEnabled = result == .available
     }
+  }
+
+  private func runIntegrationTest() async {
+    guard !integrationTestInProgress else { return }
+    guard let lease = services.sessionStore.beginIntegrationSelfTest(owner: .onboarding) else {
+      integrationTestStatus =
+        services.sessionStore.integrationSelfTestInProgress
+        ? "Another integration self-test is already running."
+        : "Resolve current work or approval before testing the integration."
+      return
+    }
+    integrationTestInProgress = true
+    defer {
+      integrationTestInProgress = false
+      services.sessionStore.finishIntegrationSelfTest(lease)
+    }
+    do {
+      let helperURL = try services.hookInstaller.installedHelperURLForExplicitSelfTest()
+      let selfTest = IntegrationSelfTestService(helperURL: helperURL)
+      try await selfTest.ping()
+      guard services.sessionStore.isIntegrationSelfTestActive(lease) else {
+        integrationTestStatus = "Integration self-test was cancelled."
+        return
+      }
+      guard services.sessionStore.canPreviewTestStates else {
+        integrationTestStatus = "Live activity started, so the integration preview was cancelled."
+        return
+      }
+      let sessionID = "cowlick-self-test-\(UUID().uuidString)"
+      guard services.sessionStore.beginIntegrationDemoSession(sessionID, lease: lease) else {
+        integrationTestStatus = "Live activity started, so the integration preview was cancelled."
+        return
+      }
+      var keepPresentedState = false
+      defer {
+        services.sessionStore.finishIntegrationDemoSession(
+          sessionID, discardPresentedState: !keepPresentedState)
+      }
+      try await selfTest.sendDemo(.working, sessionID: sessionID)
+      guard await waitForIntegrationDemoEvent(.working, sessionID: sessionID) else {
+        integrationTestStatus = integrationPreviewFailureStatus(sessionID: sessionID, lease: lease)
+        return
+      }
+      integrationTestStatus = "Authenticated bridge connected. Working state delivered."
+      try await Task.sleep(for: .seconds(1.5))
+      guard services.sessionStore.isIntegrationSelfTestActive(lease) else {
+        integrationTestStatus = "Integration self-test was cancelled."
+        return
+      }
+      guard services.sessionStore.isIntegrationDemoSessionActive(sessionID) else {
+        integrationTestStatus = "Live activity started, so the integration preview was cancelled."
+        return
+      }
+      try await selfTest.sendDemo(.completed, sessionID: sessionID)
+      guard await waitForIntegrationDemoEvent(.completed, sessionID: sessionID) else {
+        integrationTestStatus = integrationPreviewFailureStatus(sessionID: sessionID, lease: lease)
+        return
+      }
+      keepPresentedState = true
+      integrationTestStatus = "Integration passed. Working and completion were delivered."
+    } catch {
+      integrationTestStatus = error.localizedDescription
+    }
+  }
+
+  private func waitForIntegrationDemoEvent(
+    _ event: IntegrationDemoEvent,
+    sessionID: String
+  ) async -> Bool {
+    let deadline = Date().addingTimeInterval(2)
+    while Date() < deadline {
+      if services.sessionStore.hasObservedIntegrationDemoEvent(event, sessionID: sessionID) {
+        return true
+      }
+      guard services.sessionStore.isIntegrationDemoSessionActive(sessionID) else { return false }
+      do {
+        try await Task.sleep(for: .milliseconds(20))
+      } catch {
+        return false
+      }
+    }
+    return services.sessionStore.hasObservedIntegrationDemoEvent(event, sessionID: sessionID)
+  }
+
+  private func integrationPreviewFailureStatus(
+    sessionID: String,
+    lease: IntegrationSelfTestLease
+  ) -> String {
+    guard services.sessionStore.isIntegrationSelfTestActive(lease) else {
+      return "Integration self-test was cancelled."
+    }
+    return services.sessionStore.isIntegrationDemoSessionActive(sessionID)
+      ? "Integration preview delivery timed out."
+      : "Live activity started, so the integration preview was cancelled."
   }
 
   private func completeOnboarding() {

@@ -1,3 +1,4 @@
+import Darwin
 import XCTest
 
 @testable import Cowlick
@@ -109,22 +110,495 @@ final class HookInstallerTests: XCTestCase {
     XCTAssertEqual(handlers.map { $0["command"] as? String }, ["/usr/local/bin/other"])
   }
 
-  func testHelperRemovalPreservesConflictingShim() throws {
+  func testStatusRejectsOwnedButOutdatedHelper() throws {
+    let fixture = try makeInstaller(bundledContents: "current-helper")
+    defer { try? FileManager.default.removeItem(at: fixture.home) }
+    try installOwnedHelper(fixture.installer, contents: "pre-ack-helper")
+
+    XCTAssertFalse(fixture.installer.status().helperInstalled)
+  }
+
+  func testRefreshAtomicallyUpgradesHelperWithoutChangingHooksOrSettings() throws {
+    let fixture = try makeInstaller(bundledContents: "current-helper")
+    defer { try? FileManager.default.removeItem(at: fixture.home) }
+    try installOwnedHelper(fixture.installer, contents: "pre-ack-helper")
+    let oldHandle = try FileHandle(forReadingFrom: fixture.installer.installedHelperURL)
+    defer { try? oldHandle.close() }
+
+    let hooks = Data(#"{"future":{"enabled":true},"hooks":{"Stop":[]}}"#.utf8)
+    let settings = Data("model = \"gpt-5.6\"\n".utf8)
+    try FileManager.default.createDirectory(
+      at: fixture.installer.hooksURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try hooks.write(to: fixture.installer.hooksURL)
+    let settingsURL = fixture.installer.hooksURL.deletingLastPathComponent()
+      .appendingPathComponent("settings.toml")
+    try settings.write(to: settingsURL)
+
+    try fixture.installer.refreshInstalledHelperIfNeeded()
+
+    XCTAssertEqual(
+      try Data(contentsOf: fixture.installer.installedHelperURL), Data("current-helper".utf8))
+    XCTAssertEqual(try oldHandle.readToEnd(), Data("pre-ack-helper".utf8))
+    XCTAssertEqual(try Data(contentsOf: fixture.installer.hooksURL), hooks)
+    XCTAssertEqual(try Data(contentsOf: settingsURL), settings)
+    XCTAssertTrue(fixture.installer.status().helperInstalled)
+  }
+
+  func testFailedAtomicRefreshPreservesPreviousInstallHooksAndSettings() throws {
+    let fixture = try makeInstaller(bundledContents: "current-helper")
+    defer { try? FileManager.default.removeItem(at: fixture.home) }
+    try FileManager.default.createDirectory(
+      at: fixture.installer.installedHelperURL, withIntermediateDirectories: true)
+    let marker = fixture.installer.installedHelperURL.appendingPathComponent("old-helper-marker")
+    try Data("pre-ack-helper".utf8).write(to: marker)
+    try FileManager.default.createDirectory(
+      at: fixture.installer.shimURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try FileManager.default.createSymbolicLink(
+      at: fixture.installer.shimURL, withDestinationURL: fixture.installer.installedHelperURL)
+
+    let hooks = Data(#"{"custom":"preserve","hooks":{}}"#.utf8)
+    let settings = Data("approval_timeout = 60\n".utf8)
+    try FileManager.default.createDirectory(
+      at: fixture.installer.hooksURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try hooks.write(to: fixture.installer.hooksURL)
+    let settingsURL = fixture.installer.hooksURL.deletingLastPathComponent()
+      .appendingPathComponent("settings.toml")
+    try settings.write(to: settingsURL)
+
+    XCTAssertThrowsError(try fixture.installer.refreshInstalledHelperIfNeeded()) { error in
+      guard case HookInstallerError.helperReplacementFailed = error else {
+        return XCTFail("Expected atomic replacement failure, got \(error)")
+      }
+    }
+    XCTAssertEqual(try Data(contentsOf: marker), Data("pre-ack-helper".utf8))
+    XCTAssertEqual(try Data(contentsOf: fixture.installer.hooksURL), hooks)
+    XCTAssertEqual(try Data(contentsOf: settingsURL), settings)
+  }
+
+  func testDeveloperBuildRequiresExplicitRepairBeforeReplacingPersistentHelper() throws {
+    let fixture = try makeInstaller(
+      bundledContents: "developer-helper", installedApplication: false)
+    defer { try? FileManager.default.removeItem(at: fixture.home) }
+    try installOwnedHelper(fixture.installer, contents: "installed-helper")
+
+    try fixture.installer.refreshInstalledHelperIfNeeded()
+    XCTAssertEqual(
+      try Data(contentsOf: fixture.installer.installedHelperURL), Data("installed-helper".utf8))
+    XCTAssertThrowsError(try fixture.installer.currentInstalledHelperURL()) { error in
+      guard case HookInstallerError.automaticHelperRefreshUnavailable = error else {
+        return XCTFail("Expected developer-location rejection, got \(error)")
+      }
+    }
+
+    try fixture.installer.installOrRepair()
+    XCTAssertEqual(
+      try Data(contentsOf: fixture.installer.installedHelperURL), Data("developer-helper".utf8))
+    XCTAssertEqual(
+      try fixture.installer.installedHelperURLForExplicitSelfTest(),
+      fixture.installer.installedHelperURL)
+  }
+
+  func testUITestBuildNeverRefreshesPersistentHelper() throws {
+    let fixture = try makeInstaller(bundledContents: "ui-test-helper", arguments: ["--ui-testing"])
+    defer { try? FileManager.default.removeItem(at: fixture.home) }
+    try installOwnedHelper(fixture.installer, contents: "installed-helper")
+    let hooks = Data(#"{"custom":"preserve","hooks":{}}"#.utf8)
+    try FileManager.default.createDirectory(
+      at: fixture.installer.hooksURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try hooks.write(to: fixture.installer.hooksURL)
+
+    try fixture.installer.refreshInstalledHelperIfNeeded()
+
+    XCTAssertEqual(
+      try Data(contentsOf: fixture.installer.installedHelperURL), Data("installed-helper".utf8))
+    XCTAssertThrowsError(try fixture.installer.currentInstalledHelperURL())
+    XCTAssertThrowsError(try fixture.installer.installedHelperURLForExplicitSelfTest())
+    XCTAssertThrowsError(try fixture.installer.installOrRepair())
+    XCTAssertThrowsError(try fixture.installer.removeHooks())
+    XCTAssertThrowsError(try fixture.installer.removeIntegration())
+    XCTAssertEqual(try Data(contentsOf: fixture.installer.hooksURL), hooks)
+    XCTAssertEqual(
+      try Data(contentsOf: fixture.installer.installedHelperURL), Data("installed-helper".utf8))
+    XCTAssertEqual(
+      try FileManager.default.destinationOfSymbolicLink(atPath: fixture.installer.shimURL.path),
+      fixture.installer.installedHelperURL.path)
+  }
+
+  func testAutomaticRefreshPolicyAcceptsOnlyCanonicalNonSymlinkedInstallLocations() throws {
     let home = FileManager.default.temporaryDirectory
       .appendingPathComponent("CowlickInstaller-\(UUID().uuidString)", isDirectory: true)
     defer { try? FileManager.default.removeItem(at: home) }
-    let installer = HookInstaller(homeDirectory: home)
+    let userInstall = home.appendingPathComponent("Applications/Cowlick.app", isDirectory: true)
+    let developerBuild = home.appendingPathComponent(
+      "DerivedData/Build/Products/Debug/Cowlick.app", isDirectory: true)
+
+    XCTAssertTrue(
+      HookInstaller.allowsAutomaticHelperRefresh(
+        applicationBundleURL: userInstall, homeDirectory: home, arguments: []))
+    XCTAssertTrue(
+      HookInstaller.allowsAutomaticHelperRefresh(
+        applicationBundleURL: URL(fileURLWithPath: "/Applications/Cowlick.app"),
+        homeDirectory: home,
+        arguments: []))
+    XCTAssertFalse(
+      HookInstaller.allowsAutomaticHelperRefresh(
+        applicationBundleURL: developerBuild, homeDirectory: home, arguments: []))
+    XCTAssertFalse(
+      HookInstaller.allowsAutomaticHelperRefresh(
+        applicationBundleURL: userInstall, homeDirectory: home, arguments: ["--ui-testing"]))
+
     try FileManager.default.createDirectory(
-      at: installer.shimURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+      at: developerBuild, withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(
+      at: userInstall.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try FileManager.default.createSymbolicLink(at: userInstall, withDestinationURL: developerBuild)
+    XCTAssertFalse(
+      HookInstaller.allowsAutomaticHelperRefresh(
+        applicationBundleURL: userInstall, homeDirectory: home, arguments: []))
+
+    let parentSymlinkHome = home.appendingPathComponent("ParentSymlinkHome", isDirectory: true)
+    let derivedApplications = parentSymlinkHome.appendingPathComponent(
+      "DerivedData/Build/Products/Debug", isDirectory: true)
+    try FileManager.default.createDirectory(
+      at: derivedApplications.appendingPathComponent("Cowlick.app", isDirectory: true),
+      withIntermediateDirectories: true)
+    try FileManager.default.createSymbolicLink(
+      at: parentSymlinkHome.appendingPathComponent("Applications", isDirectory: true),
+      withDestinationURL: derivedApplications)
+    XCTAssertFalse(
+      HookInstaller.allowsAutomaticHelperRefresh(
+        applicationBundleURL: parentSymlinkHome.appendingPathComponent(
+          "Applications/Cowlick.app", isDirectory: true),
+        homeDirectory: parentSymlinkHome,
+        arguments: []))
+  }
+
+  func testInstallRefusesForeignHelperWithoutOwnedShim() throws {
+    let fixture = try makeInstaller(bundledContents: "current-helper")
+    defer { try? FileManager.default.removeItem(at: fixture.home) }
+    try FileManager.default.createDirectory(
+      at: fixture.installer.installedHelperURL.deletingLastPathComponent(),
+      withIntermediateDirectories: true)
+    let foreignHelper = Data("foreign-helper".utf8)
+    try foreignHelper.write(to: fixture.installer.installedHelperURL)
+    try FileManager.default.setAttributes(
+      [.posixPermissions: 0o755], ofItemAtPath: fixture.installer.installedHelperURL.path)
+
+    XCTAssertThrowsError(try fixture.installer.installOrRepair()) { error in
+      guard case HookInstallerError.helperConflict = error else {
+        return XCTFail("Expected foreign helper rejection, got \(error)")
+      }
+    }
+    XCTAssertEqual(try Data(contentsOf: fixture.installer.installedHelperURL), foreignHelper)
+    XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.installer.shimURL.path))
+    XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.installer.hooksURL.path))
+  }
+
+  func testInstallRefusesForeignLegacyHelperBeforeChangingCurrentIntegration() throws {
+    let fixture = try makeInstaller(bundledContents: "current-helper")
+    defer { try? FileManager.default.removeItem(at: fixture.home) }
+    try FileManager.default.createDirectory(
+      at: fixture.installer.legacyInstalledHelperURL.deletingLastPathComponent(),
+      withIntermediateDirectories: true)
+    let foreignHelper = Data("foreign-legacy-helper".utf8)
+    try foreignHelper.write(to: fixture.installer.legacyInstalledHelperURL)
+
+    XCTAssertThrowsError(try fixture.installer.installOrRepair()) { error in
+      guard case HookInstallerError.helperConflict = error else {
+        return XCTFail("Expected foreign legacy helper rejection, got \(error)")
+      }
+    }
+    XCTAssertEqual(try Data(contentsOf: fixture.installer.legacyInstalledHelperURL), foreignHelper)
+    XCTAssertFalse(
+      FileManager.default.fileExists(atPath: fixture.installer.installedHelperURL.path))
+    XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.installer.hooksURL.path))
+  }
+
+  func testInstallRejectsMalformedAndNonObjectHooksBeforeCreatingHelper() throws {
+    for hooks in [Data("{".utf8), Data("[]".utf8)] {
+      let fixture = try makeInstaller(bundledContents: "new-helper")
+      defer { try? FileManager.default.removeItem(at: fixture.home) }
+      try FileManager.default.createDirectory(
+        at: fixture.installer.hooksURL.deletingLastPathComponent(),
+        withIntermediateDirectories: true)
+      try hooks.write(to: fixture.installer.hooksURL)
+
+      XCTAssertThrowsError(try fixture.installer.installOrRepair())
+
+      XCTAssertEqual(try Data(contentsOf: fixture.installer.hooksURL), hooks)
+      XCTAssertFalse(
+        FileManager.default.fileExists(atPath: fixture.installer.installedHelperURL.path))
+      XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.installer.shimURL.path))
+    }
+  }
+
+  func testInstallRejectsMalformedAndNonObjectHooksBeforeReplacingOwnedHelper() throws {
+    for hooks in [Data("{".utf8), Data("[]".utf8)] {
+      let fixture = try makeInstaller(bundledContents: "new-helper")
+      defer { try? FileManager.default.removeItem(at: fixture.home) }
+      try installOwnedHelper(fixture.installer, contents: "old-helper")
+      let originalShimDestination = try FileManager.default.destinationOfSymbolicLink(
+        atPath: fixture.installer.shimURL.path)
+      try FileManager.default.createDirectory(
+        at: fixture.installer.hooksURL.deletingLastPathComponent(),
+        withIntermediateDirectories: true)
+      try hooks.write(to: fixture.installer.hooksURL)
+
+      XCTAssertThrowsError(try fixture.installer.installOrRepair())
+
+      XCTAssertEqual(try Data(contentsOf: fixture.installer.hooksURL), hooks)
+      XCTAssertEqual(
+        try Data(contentsOf: fixture.installer.installedHelperURL), Data("old-helper".utf8))
+      XCTAssertEqual(
+        try FileManager.default.destinationOfSymbolicLink(atPath: fixture.installer.shimURL.path),
+        originalShimDestination)
+    }
+  }
+
+  func testRefreshReplacesSymlinkedHelperWithoutChangingItsTarget() throws {
+    let fixture = try makeInstaller(bundledContents: "current-helper")
+    defer { try? FileManager.default.removeItem(at: fixture.home) }
+    let externalHelper = fixture.home.appendingPathComponent("external-helper")
+    try Data("current-helper".utf8).write(to: externalHelper)
+    try FileManager.default.setAttributes(
+      [.posixPermissions: 0o755], ofItemAtPath: externalHelper.path)
+    try FileManager.default.createDirectory(
+      at: fixture.installer.installedHelperURL.deletingLastPathComponent(),
+      withIntermediateDirectories: true)
+    try FileManager.default.createSymbolicLink(
+      at: fixture.installer.installedHelperURL, withDestinationURL: externalHelper)
+    try FileManager.default.createDirectory(
+      at: fixture.installer.shimURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try FileManager.default.createSymbolicLink(
+      at: fixture.installer.shimURL, withDestinationURL: fixture.installer.installedHelperURL)
+
+    XCTAssertFalse(fixture.installer.status().helperInstalled)
+    try fixture.installer.refreshInstalledHelperIfNeeded()
+
+    XCTAssertThrowsError(
+      try FileManager.default.destinationOfSymbolicLink(
+        atPath: fixture.installer.installedHelperURL.path))
+    XCTAssertEqual(try Data(contentsOf: externalHelper), Data("current-helper".utf8))
+    XCTAssertTrue(fixture.installer.status().helperInstalled)
+  }
+
+  func testRemoveIntegrationPreservesUnrelatedHooksAndSettings() throws {
+    let fixture = try makeInstaller(bundledContents: "current-helper")
+    defer { try? FileManager.default.removeItem(at: fixture.home) }
+    let originalHooks = Data(
+      #"{"future":{"enabled":true},"hooks":{"Stop":[{"matcher":"keep","hooks":[{"type":"command","command":"/usr/local/bin/other"}]}]}}"#
+        .utf8)
+    let settings = Data("model = \"gpt-5.6\"\n".utf8)
+    try FileManager.default.createDirectory(
+      at: fixture.installer.hooksURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try originalHooks.write(to: fixture.installer.hooksURL)
+    let settingsURL = fixture.installer.hooksURL.deletingLastPathComponent()
+      .appendingPathComponent("settings.toml")
+    try settings.write(to: settingsURL)
+    try fixture.installer.installOrRepair()
+
+    try fixture.installer.removeIntegration()
+
+    XCTAssertThrowsError(
+      try FileManager.default.destinationOfSymbolicLink(atPath: fixture.installer.shimURL.path))
+    XCTAssertFalse(
+      FileManager.default.fileExists(atPath: fixture.installer.installedHelperURL.path))
+    XCTAssertEqual(
+      try JSONSerialization.jsonObject(with: Data(contentsOf: fixture.installer.hooksURL))
+        as? NSDictionary,
+      try JSONSerialization.jsonObject(with: originalHooks) as? NSDictionary)
+    XCTAssertEqual(try Data(contentsOf: settingsURL), settings)
+  }
+
+  func testRemoveIntegrationRefusesForeignShimWithoutChangingAnything() throws {
+    let fixture = try makeInstaller(bundledContents: "current-helper")
+    defer { try? FileManager.default.removeItem(at: fixture.home) }
+    try installOwnedHelper(fixture.installer, contents: "current-helper")
+    try FileManager.default.removeItem(at: fixture.installer.shimURL)
+    try Data("foreign-shim".utf8).write(to: fixture.installer.shimURL)
+    let hooks = try HookInstaller.merging(Data("{}".utf8), command: command)
+    try FileManager.default.createDirectory(
+      at: fixture.installer.hooksURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try hooks.write(to: fixture.installer.hooksURL)
+
+    XCTAssertThrowsError(try fixture.installer.removeIntegration()) { error in
+      guard case HookInstallerError.shimConflict = error else {
+        return XCTFail("Expected foreign shim rejection, got \(error)")
+      }
+    }
+    XCTAssertEqual(try Data(contentsOf: fixture.installer.shimURL), Data("foreign-shim".utf8))
+    XCTAssertEqual(
+      try Data(contentsOf: fixture.installer.installedHelperURL), Data("current-helper".utf8))
+    XCTAssertEqual(try Data(contentsOf: fixture.installer.hooksURL), hooks)
+  }
+
+  func testRemoveIntegrationRefusesForeignHelperWithoutChangingHooks() throws {
+    let fixture = try makeInstaller(bundledContents: "current-helper")
+    defer { try? FileManager.default.removeItem(at: fixture.home) }
+    try FileManager.default.createDirectory(
+      at: fixture.installer.installedHelperURL.deletingLastPathComponent(),
+      withIntermediateDirectories: true)
+    try Data("foreign-helper".utf8).write(to: fixture.installer.installedHelperURL)
+    try FileManager.default.setAttributes(
+      [.posixPermissions: 0o755], ofItemAtPath: fixture.installer.installedHelperURL.path)
+    let hooks = try HookInstaller.merging(Data("{}".utf8), command: command)
+    try FileManager.default.createDirectory(
+      at: fixture.installer.hooksURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try hooks.write(to: fixture.installer.hooksURL)
+
+    XCTAssertThrowsError(try fixture.installer.removeIntegration()) { error in
+      guard case HookInstallerError.helperConflict = error else {
+        return XCTFail("Expected foreign helper rejection, got \(error)")
+      }
+    }
+    XCTAssertEqual(
+      try Data(contentsOf: fixture.installer.installedHelperURL), Data("foreign-helper".utf8))
+    XCTAssertEqual(try Data(contentsOf: fixture.installer.hooksURL), hooks)
+  }
+
+  func testRemoveIntegrationRemovesOwnedLegacyHelper() throws {
+    let fixture = try makeInstaller(bundledContents: "current-helper")
+    defer { try? FileManager.default.removeItem(at: fixture.home) }
+    try fixture.installer.installOrRepair()
+    try FileManager.default.createDirectory(
+      at: fixture.installer.legacyInstalledHelperURL.deletingLastPathComponent(),
+      withIntermediateDirectories: true)
+    try Data("legacy-helper".utf8).write(to: fixture.installer.legacyInstalledHelperURL)
+    try FileManager.default.createSymbolicLink(
+      at: fixture.installer.legacyShimURL,
+      withDestinationURL: fixture.installer.legacyInstalledHelperURL)
+
+    try fixture.installer.removeIntegration()
+
+    XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.installer.legacyShimURL.path))
+    XCTAssertFalse(
+      FileManager.default.fileExists(atPath: fixture.installer.legacyInstalledHelperURL.path))
+  }
+
+  func testConcurrentRemoveThenInstallFinishesWhollyInstalled() async throws {
+    let fixture = try makeInstaller(bundledContents: "current-helper")
+    defer { try? FileManager.default.removeItem(at: fixture.home) }
+    try fixture.installer.installOrRepair()
+
+    let removalStarted = DispatchSemaphore(value: 0)
+    let continueRemoval = DispatchSemaphore(value: 0)
+    let blockingFileManager = BlockingRemovalFileManager(
+      blockedPath: fixture.installer.shimURL.path,
+      removalStarted: removalStarted,
+      continueRemoval: continueRemoval)
+    let removingInstaller = HookInstaller(
+      fileManager: blockingFileManager,
+      homeDirectory: fixture.home,
+      applicationBundleURL: fixture.applicationBundle,
+      bundledHelperURL: fixture.bundledHelper)
+    let removeTask = Task.detached { try removingInstaller.removeIntegration() }
+    XCTAssertEqual(removalStarted.wait(timeout: .now() + 2), .success)
+
+    let lockURL = fixture.installer.hooksURL.deletingLastPathComponent()
+      .appendingPathComponent(".hooks.json.cowlick.lock")
+    let descriptor = Darwin.open(lockURL.path, O_RDWR)
+    XCTAssertGreaterThanOrEqual(descriptor, 0)
+    if descriptor >= 0 {
+      let result = flock(descriptor, LOCK_EX | LOCK_NB)
+      if result == 0 { flock(descriptor, LOCK_UN) }
+      Darwin.close(descriptor)
+      XCTAssertNotEqual(result, 0, "Removal must retain the integration lock through file deletion")
+    }
+
+    let installStarted = DispatchSemaphore(value: 0)
+    let installingInstaller = HookInstaller(
+      homeDirectory: fixture.home,
+      applicationBundleURL: fixture.applicationBundle,
+      bundledHelperURL: fixture.bundledHelper)
+    let installTask = Task.detached {
+      installStarted.signal()
+      try installingInstaller.installOrRepair()
+    }
+    XCTAssertEqual(installStarted.wait(timeout: .now() + 2), .success)
+    continueRemoval.signal()
+    try await removeTask.value
+    try await installTask.value
+
+    XCTAssertTrue(fixture.installer.status().isHealthy)
+    XCTAssertEqual(
+      try FileManager.default.destinationOfSymbolicLink(atPath: fixture.installer.shimURL.path),
+      fixture.installer.installedHelperURL.path)
+    XCTAssertEqual(
+      try Data(contentsOf: fixture.installer.installedHelperURL), Data("current-helper".utf8))
+  }
+
+  private func makeInstaller(
+    bundledContents: String,
+    installedApplication: Bool = true,
+    arguments: [String] = []
+  ) throws -> (
+    home: URL, installer: HookInstaller, applicationBundle: URL, bundledHelper: URL
+  ) {
+    let home = FileManager.default.temporaryDirectory
+      .appendingPathComponent("CowlickInstaller-\(UUID().uuidString)", isDirectory: true)
+    let applicationBundle = home.appendingPathComponent(
+      installedApplication
+        ? "Applications/Cowlick.app"
+        : "DerivedData/Build/Products/Debug/Cowlick.app")
+    let bundledHelper = applicationBundle.appendingPathComponent("Contents/Helpers/cowlick-hook")
+    try FileManager.default.createDirectory(
+      at: bundledHelper.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try Data(bundledContents.utf8).write(to: bundledHelper)
+    try FileManager.default.setAttributes(
+      [.posixPermissions: 0o755], ofItemAtPath: bundledHelper.path)
+    return (
+      home,
+      HookInstaller(
+        homeDirectory: home,
+        applicationBundleURL: applicationBundle,
+        bundledHelperURL: bundledHelper,
+        arguments: arguments),
+      applicationBundle,
+      bundledHelper
+    )
+  }
+
+  private func installOwnedHelper(_ installer: HookInstaller, contents: String) throws {
     try FileManager.default.createDirectory(
       at: installer.installedHelperURL.deletingLastPathComponent(),
       withIntermediateDirectories: true)
-    try Data("user-owned".utf8).write(to: installer.shimURL)
-    try Data("installed-helper".utf8).write(to: installer.installedHelperURL)
-
-    try installer.removeInstalledHelper()
-
-    XCTAssertEqual(try String(contentsOf: installer.shimURL), "user-owned")
-    XCTAssertFalse(FileManager.default.fileExists(atPath: installer.installedHelperURL.path))
+    try Data(contents.utf8).write(to: installer.installedHelperURL)
+    try FileManager.default.setAttributes(
+      [.posixPermissions: 0o755], ofItemAtPath: installer.installedHelperURL.path)
+    try FileManager.default.createDirectory(
+      at: installer.shimURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try FileManager.default.createSymbolicLink(
+      at: installer.shimURL, withDestinationURL: installer.installedHelperURL)
   }
+}
+
+private final class BlockingRemovalFileManager: FileManager {
+  private let blockedPath: String
+  private let removalStarted: DispatchSemaphore
+  private let continueRemoval: DispatchSemaphore
+
+  init(
+    blockedPath: String,
+    removalStarted: DispatchSemaphore,
+    continueRemoval: DispatchSemaphore
+  ) {
+    self.blockedPath = blockedPath
+    self.removalStarted = removalStarted
+    self.continueRemoval = continueRemoval
+    super.init()
+  }
+
+  override func removeItem(at URL: URL) throws {
+    if URL.path == blockedPath {
+      removalStarted.signal()
+      guard continueRemoval.wait(timeout: .now() + 5) == .success else {
+        throw BlockingRemovalError.timedOut
+      }
+    }
+    try super.removeItem(at: URL)
+  }
+}
+
+private enum BlockingRemovalError: Error {
+  case timedOut
 }

@@ -46,5 +46,6 @@ codesign --verify --deep --strict --verbose=2 "$app"
 codesign --verify --strict --verbose=2 "$dmg"
 (cd "$output" && shasum -a 256 "Cowlick-$version.zip" "Cowlick-$version.dmg" > checksums.txt)
 "$script_dir/generate_appcast.sh" "$output" "$version"
+"$script_dir/verify_release_artifacts.sh" "$version" "$output"
 
 print "Signed, notarized, stapled, and appcast-ready artifacts are in $output"

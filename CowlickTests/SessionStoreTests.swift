@@ -63,6 +63,47 @@ final class SessionStoreTests: XCTestCase {
     XCTAssertTrue(store.approvalQueue.isEmpty)
   }
 
+  func testApprovalKeepsHumanReasonSeparateFromOperation() async {
+    let settings = makeTestSettings()
+    settings.approvalTimeout = 10
+    let store = SessionStore(settings: settings)
+    let event = makeBridgeEvent(
+      event: .approvalRequested,
+      toolName: "Bash",
+      toolInput: .object([
+        "command": .string("git push origin main"),
+        "description": .string("Publish the verified branch"),
+      ]))
+
+    let task = Task { await store.receive(event) }
+    let approvalQueued = await waitUntil { store.currentApproval != nil }
+    XCTAssertTrue(approvalQueued)
+    XCTAssertEqual(store.currentApproval?.reasonPreview, "Publish the verified branch")
+    XCTAssertEqual(store.currentApproval?.operationPreview, "git push origin main")
+    XCTAssertTrue(store.currentApproval?.showsDistinctOperation == true)
+    XCTAssertTrue(store.decide(requestID: event.requestId, decision: .deny))
+    _ = await task.value
+  }
+
+  func testApprovalWithoutToolInputDoesNotInventOperation() async {
+    let settings = makeTestSettings()
+    settings.approvalTimeout = 10
+    let store = SessionStore(settings: settings)
+    let event = makeBridgeEvent(
+      event: .approvalRequested,
+      toolName: "Codex tool",
+      description: "Review this permission")
+
+    let task = Task { await store.receive(event) }
+    let approvalQueued = await waitUntil { store.currentApproval != nil }
+    XCTAssertTrue(approvalQueued)
+    XCTAssertEqual(store.currentApproval?.reasonPreview, "Review this permission")
+    XCTAssertEqual(store.currentApproval?.operationPreview, "")
+    XCTAssertFalse(store.currentApproval?.showsDistinctOperation == true)
+    XCTAssertTrue(store.decide(requestID: event.requestId, decision: .deny))
+    _ = await task.value
+  }
+
   func testExpiredApprovalDefersWithoutQueueing() async {
     let settings = makeTestSettings()
     settings.approvalTimeout = 5
@@ -108,6 +149,316 @@ final class SessionStoreTests: XCTestCase {
     XCTAssertTrue(store.approvalQueue.isEmpty)
   }
 
+  func testEveryPreviewActionPreservesLivePendingApprovalAndSession() async {
+    let previews: [(String, (SessionStore) -> Void)] = [
+      ("Working", { $0.testState(.working) }),
+      ("Approval", { $0.testState(.approvalRequested) }),
+      ("Completed", { $0.testState(.completed) }),
+      ("Failed", { $0.testState(.failed) }),
+      ("Multiple Sessions", { $0.testMultipleSessions() }),
+      (
+        "Test Integration",
+        {
+          guard let lease = $0.beginIntegrationSelfTest(owner: .onboarding) else { return }
+          _ = $0.beginIntegrationDemoSession("blocked-integration-demo", lease: lease)
+        }
+      ),
+    ]
+
+    for (name, preview) in previews {
+      let settings = makeTestSettings()
+      settings.approvalTimeout = 10
+      let store = SessionStore(settings: settings)
+      let requestID = UUID()
+      let event = makeBridgeEvent(
+        event: .approvalRequested,
+        requestID: requestID,
+        sessionID: "live-approval",
+        toolName: "Bash",
+        toolInput: .object(["command": .string("git push")])
+      )
+      let decisionTask = Task { await store.receive(event) }
+      let queued = await waitUntil { store.currentApproval?.id == requestID }
+      XCTAssertTrue(queued, name)
+      guard let liveSession = store.sessions[event.sessionId] else {
+        decisionTask.cancel()
+        return XCTFail("Expected live session before \(name) preview")
+      }
+
+      preview(store)
+
+      XCTAssertEqual(store.approvalQueue.map(\.id), [requestID], name)
+      XCTAssertEqual(store.sessions[event.sessionId], liveSession, name)
+      XCTAssertEqual(store.sessions.count, 1, name)
+      XCTAssertTrue(store.decide(requestID: requestID, decision: .allow), name)
+      let decision = await decisionTask.value
+      XCTAssertEqual(decision, .allow, name)
+    }
+  }
+
+  func testEveryPreviewActionPreservesLiveWorkingSession() async {
+    let previews: [(String, (SessionStore) -> Void)] = [
+      ("Working", { $0.testState(.working) }),
+      ("Approval", { $0.testState(.approvalRequested) }),
+      ("Completed", { $0.testState(.completed) }),
+      ("Failed", { $0.testState(.failed) }),
+      ("Multiple Sessions", { $0.testMultipleSessions() }),
+      (
+        "Test Integration",
+        {
+          guard let lease = $0.beginIntegrationSelfTest(owner: .onboarding) else { return }
+          _ = $0.beginIntegrationDemoSession("blocked-integration-demo", lease: lease)
+        }
+      ),
+    ]
+
+    for (name, preview) in previews {
+      let store = SessionStore(settings: makeTestSettings())
+      _ = await store.receive(
+        makeBridgeEvent(event: .working, sessionID: "live-working", prompt: "Ship Cowlick"))
+      let liveSession = store.sessions["live-working"]
+
+      preview(store)
+
+      XCTAssertEqual(store.sessions["live-working"], liveSession, name)
+      XCTAssertEqual(store.sessions.count, 1, name)
+      XCTAssertTrue(store.approvalQueue.isEmpty, name)
+    }
+  }
+
+  func testEveryPreviewActionPreservesAndCannotHideLiveFailedSession() async {
+    let previews: [(String, (SessionStore) -> Void)] = [
+      ("Working", { $0.testState(.working) }),
+      ("Approval", { $0.testState(.approvalRequested) }),
+      ("Completed", { $0.testState(.completed) }),
+      ("Failed", { $0.testState(.failed) }),
+      ("Multiple Sessions", { $0.testMultipleSessions() }),
+      (
+        "Test Integration",
+        {
+          guard let lease = $0.beginIntegrationSelfTest(owner: .onboarding) else { return }
+          _ = $0.beginIntegrationDemoSession("blocked-integration-demo", lease: lease)
+        }
+      ),
+    ]
+
+    for (name, preview) in previews {
+      let store = SessionStore(settings: makeTestSettings())
+      _ = await store.receive(
+        makeBridgeEvent(event: .failed, sessionID: "live-failure", error: "Real build failed"))
+      let liveSession = store.sessions["live-failure"]
+
+      XCTAssertFalse(store.canPreviewTestStates, name)
+      preview(store)
+
+      XCTAssertEqual(store.sessions["live-failure"], liveSession, name)
+      XCTAssertEqual(store.sessions.count, 1, name)
+      XCTAssertEqual(store.displaySession, liveSession, name)
+      XCTAssertTrue(store.approvalQueue.isEmpty, name)
+      XCTAssertFalse(store.integrationSelfTestInProgress, name)
+    }
+  }
+
+  func testLiveApprovalClearsOnlyLocallyOwnedDemoState() async {
+    let settings = makeTestSettings()
+    settings.approvalTimeout = 10
+    let store = SessionStore(settings: settings)
+    store.testState(.approvalRequested)
+    let demoRequestID = store.currentApproval?.id
+    XCTAssertNotNil(demoRequestID)
+    XCTAssertNotNil(store.sessions["demo-visual-state"])
+    let liveRequestID = UUID()
+    let event = makeBridgeEvent(
+      event: .approvalRequested,
+      requestID: liveRequestID,
+      sessionID: "live-approval",
+      toolName: "Bash"
+    )
+
+    let decisionTask = Task { await store.receive(event) }
+    let queued = await waitUntil { store.currentApproval?.id == liveRequestID }
+
+    XCTAssertTrue(queued)
+    XCTAssertFalse(store.approvalQueue.contains { $0.id == demoRequestID })
+    XCTAssertEqual(store.approvalQueue.map(\.id), [liveRequestID])
+    XCTAssertNil(store.sessions["demo-visual-state"])
+    XCTAssertEqual(Set(store.sessions.keys), ["live-approval"])
+    XCTAssertTrue(store.decide(requestID: liveRequestID, decision: .deny))
+    let decision = await decisionTask.value
+    XCTAssertEqual(decision, .deny)
+  }
+
+  func testLiveApprovalCancelsIntegrationDemoAndIgnoresLateCompletion() async {
+    let settings = makeTestSettings()
+    settings.approvalTimeout = 10
+    let store = SessionStore(settings: settings)
+    let demoSessionID = "cowlick-self-test-\(UUID().uuidString)"
+    guard let lease = store.beginIntegrationSelfTest(owner: .onboarding) else {
+      return XCTFail("Expected onboarding self-test lease")
+    }
+    XCTAssertTrue(store.beginIntegrationDemoSession(demoSessionID, lease: lease))
+    _ = await store.receive(makeBridgeEvent(event: .working, sessionID: demoSessionID))
+    XCTAssertTrue(store.isIntegrationDemoSessionActive(demoSessionID))
+
+    let liveRequestID = UUID()
+    let liveEvent = makeBridgeEvent(
+      event: .approvalRequested,
+      requestID: liveRequestID,
+      sessionID: "live-approval",
+      toolName: "Bash",
+      toolInput: .object(["command": .string("git push")])
+    )
+    let decisionTask = Task { await store.receive(liveEvent) }
+    let queued = await waitUntil { store.currentApproval?.id == liveRequestID }
+    XCTAssertTrue(queued)
+    guard let liveSession = store.sessions[liveEvent.sessionId] else {
+      decisionTask.cancel()
+      return XCTFail("Expected live approval session")
+    }
+    XCTAssertFalse(store.isIntegrationDemoSessionActive(demoSessionID))
+    store.finishIntegrationDemoSession(demoSessionID, discardPresentedState: true)
+
+    _ = await store.receive(makeBridgeEvent(event: .completed, sessionID: demoSessionID))
+
+    XCTAssertNil(store.sessions[demoSessionID])
+    XCTAssertEqual(store.approvalQueue.map(\.id), [liveRequestID])
+    XCTAssertEqual(store.sessions[liveEvent.sessionId], liveSession)
+    XCTAssertTrue(store.decide(requestID: liveRequestID, decision: .allow))
+    let decision = await decisionTask.value
+    XCTAssertEqual(decision, .allow)
+  }
+
+  func testResetCancelsIntegrationDemoAndIgnoresLateCompletion() async {
+    let store = SessionStore(settings: makeTestSettings())
+    let demoSessionID = "cowlick-self-test-\(UUID().uuidString)"
+    guard let lease = store.beginIntegrationSelfTest(owner: .onboarding) else {
+      return XCTFail("Expected onboarding self-test lease")
+    }
+    XCTAssertTrue(store.beginIntegrationDemoSession(demoSessionID, lease: lease))
+    _ = await store.receive(makeBridgeEvent(event: .working, sessionID: demoSessionID))
+    XCTAssertTrue(store.hasObservedIntegrationDemoEvent(.working, sessionID: demoSessionID))
+
+    store.reset()
+    XCTAssertFalse(store.isIntegrationDemoSessionActive(demoSessionID))
+    XCTAssertFalse(store.isIntegrationSelfTestActive(lease))
+    XCTAssertTrue(store.integrationSelfTestInProgress)
+    XCTAssertTrue(store.sessions.isEmpty)
+
+    _ = await store.receive(makeBridgeEvent(event: .completed, sessionID: demoSessionID))
+
+    XCTAssertNil(store.sessions[demoSessionID])
+    XCTAssertTrue(store.approvalQueue.isEmpty)
+    store.finishIntegrationSelfTest(lease)
+  }
+
+  func testOverlappingIntegrationDemoStartsAreRejected() {
+    let store = SessionStore(settings: makeTestSettings())
+    guard let lease = store.beginIntegrationSelfTest(owner: .onboarding) else {
+      return XCTFail("Expected onboarding self-test lease")
+    }
+
+    XCTAssertTrue(store.beginIntegrationDemoSession("first-integration-demo", lease: lease))
+    XCTAssertFalse(store.beginIntegrationDemoSession("second-integration-demo", lease: lease))
+    XCTAssertTrue(store.isIntegrationDemoSessionActive("first-integration-demo"))
+    XCTAssertFalse(store.isIntegrationDemoSessionActive("second-integration-demo"))
+  }
+
+  func testIntegrationDemoOwnershipEndsOnlyAfterObservedCompletion() async {
+    let store = SessionStore(settings: makeTestSettings())
+    let demoSessionID = "cowlick-self-test-\(UUID().uuidString)"
+    guard let lease = store.beginIntegrationSelfTest(owner: .onboarding) else {
+      return XCTFail("Expected onboarding self-test lease")
+    }
+    XCTAssertTrue(store.beginIntegrationDemoSession(demoSessionID, lease: lease))
+
+    _ = await store.receive(makeBridgeEvent(event: .working, sessionID: demoSessionID))
+    XCTAssertTrue(store.hasObservedIntegrationDemoEvent(.working, sessionID: demoSessionID))
+    XCTAssertFalse(store.hasObservedIntegrationDemoEvent(.completed, sessionID: demoSessionID))
+
+    _ = await store.receive(makeBridgeEvent(event: .completed, sessionID: demoSessionID))
+    XCTAssertTrue(store.hasObservedIntegrationDemoEvent(.completed, sessionID: demoSessionID))
+    store.finishIntegrationDemoSession(demoSessionID, discardPresentedState: false)
+
+    XCTAssertFalse(store.isIntegrationDemoSessionActive(demoSessionID))
+    XCTAssertNotNil(store.sessions[demoSessionID])
+  }
+
+  func testKeepFinishBeforeCompletionRetainsOwnershipThroughLateDelivery() async {
+    let store = SessionStore(settings: makeTestSettings())
+    let demoSessionID = "cowlick-self-test-\(UUID().uuidString)"
+    guard let lease = store.beginIntegrationSelfTest(owner: .onboarding) else {
+      return XCTFail("Expected onboarding self-test lease")
+    }
+    XCTAssertTrue(store.beginIntegrationDemoSession(demoSessionID, lease: lease))
+
+    store.finishIntegrationDemoSession(demoSessionID, discardPresentedState: false)
+    XCTAssertTrue(store.isIntegrationDemoSessionActive(demoSessionID))
+
+    _ = await store.receive(makeBridgeEvent(event: .completed, sessionID: demoSessionID))
+
+    XCTAssertTrue(store.hasObservedIntegrationDemoEvent(.completed, sessionID: demoSessionID))
+    XCTAssertFalse(store.isIntegrationDemoSessionActive(demoSessionID))
+    XCTAssertNotNil(store.sessions[demoSessionID])
+  }
+
+  func testDiagnosticsSelfTestCannotOverlapOnboardingDemo() async {
+    let store = SessionStore(settings: makeTestSettings())
+    guard let onboardingLease = store.beginIntegrationSelfTest(owner: .onboarding) else {
+      return XCTFail("Expected onboarding self-test lease")
+    }
+    let demoSessionID = "cowlick-self-test-\(UUID().uuidString)"
+    XCTAssertTrue(store.beginIntegrationDemoSession(demoSessionID, lease: onboardingLease))
+    _ = await store.receive(makeBridgeEvent(event: .working, sessionID: demoSessionID))
+
+    XCTAssertNil(store.beginIntegrationSelfTest(owner: .diagnostics))
+    XCTAssertTrue(store.isIntegrationDemoSessionActive(demoSessionID))
+    XCTAssertTrue(store.hasObservedIntegrationDemoEvent(.working, sessionID: demoSessionID))
+
+    store.finishIntegrationDemoSession(demoSessionID, discardPresentedState: true)
+    store.finishIntegrationSelfTest(onboardingLease)
+    XCTAssertNotNil(store.beginIntegrationSelfTest(owner: .diagnostics))
+  }
+
+  func testResetKeepsCancelledLeaseUntilDelayedOwnerFinishesAndIgnoresLateEvent() async {
+    let store = SessionStore(settings: makeTestSettings())
+    guard let onboardingLease = store.beginIntegrationSelfTest(owner: .onboarding) else {
+      return XCTFail("Expected onboarding self-test lease")
+    }
+    let demoSessionID = "delayed-integration-demo"
+    XCTAssertTrue(store.beginIntegrationDemoSession(demoSessionID, lease: onboardingLease))
+    _ = await store.receive(makeBridgeEvent(event: .working, sessionID: demoSessionID))
+
+    store.reset()
+    XCTAssertFalse(store.isIntegrationSelfTestActive(onboardingLease))
+    XCTAssertTrue(store.integrationSelfTestInProgress)
+    XCTAssertNil(store.beginIntegrationSelfTest(owner: .diagnostics))
+
+    _ = await store.receive(makeBridgeEvent(event: .completed, sessionID: demoSessionID))
+    XCTAssertNil(store.sessions[demoSessionID])
+
+    store.finishIntegrationSelfTest(onboardingLease)
+    guard let diagnosticsLease = store.beginIntegrationSelfTest(owner: .diagnostics) else {
+      return XCTFail("Expected diagnostics lease after delayed owner finished")
+    }
+    store.finishIntegrationSelfTest(diagnosticsLease)
+    XCTAssertFalse(store.integrationSelfTestInProgress)
+  }
+
+  func testPingClearsPreviewAndNotifiesPresentation() async {
+    let store = SessionStore(settings: makeTestSettings())
+    store.testState(.approvalRequested)
+    XCTAssertNotNil(store.currentApproval)
+    XCTAssertNotNil(store.sessions["demo-visual-state"])
+    var presentationChangeCount = 0
+    store.presentationDidChange = { presentationChangeCount += 1 }
+
+    _ = await store.receive(makeBridgeEvent(event: .ping, sessionID: "health-check"))
+
+    XCTAssertNil(store.currentApproval)
+    XCTAssertNil(store.sessions["demo-visual-state"])
+    XCTAssertEqual(presentationChangeCount, 1)
+  }
+
   func testDuplicateApprovalRequestIDDefersWithoutAliasingDecision() async {
     let settings = makeTestSettings()
     settings.approvalTimeout = 10
@@ -146,6 +497,46 @@ final class SessionStoreTests: XCTestCase {
     XCTAssertNotNil(store.displaySession)
     store.dismissCompletion(sessionID: "session-1")
     XCTAssertNil(store.displaySession)
+  }
+
+  func testCompletionResultPreviewIsStoredAndRenderedWhenEnabled() async {
+    let settings = makeTestSettings()
+    settings.showResultPreviews = true
+    let store = SessionStore(settings: settings)
+    _ = await store.receive(
+      makeBridgeEvent(event: .completed, result: "Release verification passed"))
+
+    guard let session = store.sessions["session-1"] else {
+      return XCTFail("Expected completed session")
+    }
+    XCTAssertEqual(
+      SessionListView.secondaryText(
+        for: session,
+        showPromptPreviews: false,
+        showResultPreviews: true),
+      "Release verification passed"
+    )
+    XCTAssertEqual(
+      SessionListView.accessibilityLabel(
+        for: session,
+        showPromptPreviews: false,
+        showResultPreviews: true),
+      "Scoutly, Completed, Release verification passed"
+    )
+    XCTAssertEqual(
+      SessionListView.secondaryText(
+        for: session,
+        showPromptPreviews: false,
+        showResultPreviews: false),
+      "Completed"
+    )
+    XCTAssertEqual(
+      SessionListView.accessibilityLabel(
+        for: session,
+        showPromptPreviews: false,
+        showResultPreviews: false),
+      "Scoutly, Completed"
+    )
   }
 
   func testCompletionAutomaticallyExpiresObservedState() async throws {
@@ -191,7 +582,8 @@ final class SessionStoreTests: XCTestCase {
     ApprovalRequest(
       id: UUID(), sessionID: "s", turnID: "t", projectName: "Scoutly",
       workingDirectory: "/tmp/Scoutly", toolName: "Bash",
-      operationDescription: "Run tests", fullOperation: "swift test",
+      operationDescription: "Run the project test suite", operationSummary: "swift test",
+      fullOperation: "swift test",
       requestedAt: Date(), expiresAt: Date().addingTimeInterval(60)
     )
   }

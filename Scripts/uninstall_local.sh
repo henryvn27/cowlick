@@ -4,8 +4,24 @@ set -euo pipefail
 script_dir="${0:A:h}"
 project_root="${script_dir:h}"
 purge=false
-[[ "${1:-}" == "--purge" ]] && purge=true
-[[ $# -le 1 ]] || { print -u2 "usage: $0 [--purge]"; exit 2; }
+
+usage() {
+  print "usage: $0 [--purge]"
+}
+
+case "${1:-}" in
+  "") [[ $# == 0 ]] || { usage >&2; exit 2; } ;;
+  --purge) [[ $# == 1 ]] || { usage >&2; exit 2; }; purge=true ;;
+  -h|--help) [[ $# == 1 ]] || { usage >&2; exit 2; }; usage; exit 0 ;;
+  *) usage >&2; exit 2 ;;
+esac
+
+if [[ -z "${COWLICK_LOCAL_LIFECYCLE_LOCK_HELD:-}" ]]; then
+  mkdir -p "$HOME/.codex"
+  export COWLICK_LOCAL_LIFECYCLE_LOCK_HELD=1
+  exec /usr/bin/lockf -k "$HOME/.codex/.cowlick-local-lifecycle.lock" \
+    "$script_dir/uninstall_local.sh" "$@"
+fi
 
 purge_tool_directory=""
 cleanup() {
@@ -55,17 +71,9 @@ swift "$script_dir/install_hooks.swift" remove
 
 app_path="$HOME/Applications/Cowlick.app"
 legacy_app_path="$HOME/Applications/NotchRelay.app"
-helper_path="$HOME/Library/Application Support/Cowlick/bin/cowlick-hook"
-legacy_helper_path="$HOME/Library/Application Support/NotchRelay/bin/notchrelay-hook"
-shim_path="$HOME/.local/bin/cowlick-hook"
-legacy_shim_path="$HOME/.local/bin/notchrelay-hook"
 runtime_socket="${TMPDIR%/}/Cowlick-$(id -u)/bridge.sock"
 legacy_runtime_socket="${TMPDIR%/}/NotchRelay-$(id -u)/bridge.sock"
 
-[[ -L "$shim_path" && "$(readlink "$shim_path")" == "$helper_path" ]] && rm "$shim_path"
-[[ -L "$legacy_shim_path" && "$(readlink "$legacy_shim_path")" == "$legacy_helper_path" ]] && rm "$legacy_shim_path"
-[[ -f "$helper_path" ]] && rm "$helper_path"
-[[ -f "$legacy_helper_path" ]] && rm "$legacy_helper_path"
 [[ -d "$app_path" ]] && rm -rf "$app_path"
 [[ -d "$legacy_app_path" ]] && rm -rf "$legacy_app_path"
 [[ -S "$runtime_socket" ]] && rm "$runtime_socket"
@@ -74,6 +82,7 @@ legacy_runtime_socket="${TMPDIR%/}/NotchRelay-$(id -u)/bridge.sock"
 if $purge; then
   rm -rf "$HOME/Library/Application Support/Cowlick"
   rm -rf "$HOME/Library/Application Support/NotchRelay"
+  swift "$script_dir/install_hooks.swift" remove >/dev/null
   defaults delete com.henryvn27.Cowlick 2>/dev/null || true
   defaults delete com.henryvn27.NotchRelay 2>/dev/null || true
   print "Removed Cowlick, its integration, settings, and runtime data."

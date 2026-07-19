@@ -36,7 +36,7 @@ cask "cowlick" do
     Open Cowlick once and complete onboarding to install the local Codex hooks.
     The app never modifies Codex configuration from a Homebrew install script.
 
-    Before uninstalling, choose Remove Codex Integration in Cowlick Settings.
+    Before uninstalling, choose Remove Integration in Cowlick Settings.
     Before using `brew uninstall --zap`, also remove every saved billing account
     in Settings > Accounts. Homebrew cannot declaratively remove Keychain items,
     so zap preserves provider-accounts.json rather than orphaning credentials.

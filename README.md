@@ -45,6 +45,10 @@ If Homebrew reports that the cask is unavailable, no verified public cask has be
 
 Every public version is listed on [GitHub Releases](https://github.com/henryvn27/cowlick/releases) with its signed, notarized DMG, update ZIP, checksums, release notes, supported architectures, and minimum macOS version. A Releases page with no version means there is no public binary to download. Normal release installation requires no Xcode, Swift, Python, Node, npm, Cowlick account, or cloud service.
 
+After Cowlick installs its four lifecycle hooks, Codex may require one security review: open the Codex CLI, run `/hooks`, and trust the Cowlick commands. This is a trust confirmation, not a manual hook-installation step.
+
+To uninstall a public build, first choose Settings → Integration → Remove Integration so Cowlick removes only its hooks and installed helper. Then remove the app with `brew uninstall --cask cowlick` or delete the direct-download app. Before `brew uninstall --zap`, also remove every saved billing account in Settings → Accounts because Homebrew cannot remove its Keychain credential.
+
 ### Contributor install
 
 Requirements: macOS 14+, Xcode 16 or newer, and XcodeGen.

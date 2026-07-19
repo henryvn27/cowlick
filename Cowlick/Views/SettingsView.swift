@@ -17,6 +17,7 @@ struct SettingsView: View {
   @State private var launchAtLogin = false
   @State private var launchError = ""
   @State private var confirmReset = false
+  @State private var integrationTaskInProgress = false
 
   var body: some View {
     @Bindable var settings = services.settings
@@ -68,9 +69,10 @@ struct SettingsView: View {
           }
           HStack {
             Button("Install or Repair") { installHooks() }
-            Button("Remove Hooks") { removeHooks() }
+            Button("Remove Integration") { removeIntegration() }
             Button("Reveal Configuration") { revealHooks() }
           }
+          .disabled(integrationTaskInProgress)
           if !integrationMessage.isEmpty {
             Text(integrationMessage).font(.caption).foregroundStyle(.secondary)
           }
@@ -83,8 +85,9 @@ struct SettingsView: View {
             Button("Working") { services.sessionStore.testState(.working) }
             Button("Approval") { services.sessionStore.testState(.approvalRequested) }
             Button("Completed") { services.sessionStore.testState(.completed) }
-            Button("Failed") { services.sessionStore.testState(.failed) }
+            Button("Failed Preview") { services.sessionStore.testState(.failed) }
           }
+          .disabled(!services.sessionStore.canPreviewTestStates)
         }
       }
       .formStyle(.grouped)
@@ -229,8 +232,11 @@ struct SettingsView: View {
   }
 
   private func installHooks() {
+    guard !integrationTaskInProgress else { return }
+    integrationTaskInProgress = true
     integrationMessage = "Installing…"
     Task {
+      defer { integrationTaskInProgress = false }
       let result = await Task.detached { () -> HookTaskResult in
         let installer = HookInstaller()
         do {
@@ -242,18 +248,24 @@ struct SettingsView: View {
         }
       }.value
       hookStatus = result.status
+      if result.errorMessage == nil {
+        services.settings.integrationIntentionallyRemoved = false
+      }
       hookTrust = await services.hookTrustService.inspect()
       integrationMessage = result.errorMessage ?? hookTrustGuidance
     }
   }
 
-  private func removeHooks() {
+  private func removeIntegration() {
+    guard !integrationTaskInProgress else { return }
+    integrationTaskInProgress = true
     integrationMessage = "Removing…"
     Task {
+      defer { integrationTaskInProgress = false }
       let result = await Task.detached { () -> HookTaskResult in
         let installer = HookInstaller()
         do {
-          try installer.removeHooks()
+          try installer.removeIntegration()
           return HookTaskResult(status: installer.status(), errorMessage: nil)
         } catch {
           return HookTaskResult(
@@ -261,7 +273,10 @@ struct SettingsView: View {
         }
       }.value
       hookStatus = result.status
-      integrationMessage = result.errorMessage ?? "Cowlick hook entries removed."
+      if result.errorMessage == nil {
+        services.settings.integrationIntentionallyRemoved = true
+      }
+      integrationMessage = result.errorMessage ?? "Cowlick hooks and installed helper removed."
     }
   }
 
