@@ -162,7 +162,11 @@ final class EventLogger {
       let matchEnd = NSMaxRange(match.range)
       let replacement =
         removedBoundaryOffsets.contains(matchEnd)
-          && !hasVisibleHomeBoundary(in: value, atUTF16Offset: matchEnd)
+          && !hasVisibleHomeBoundary(
+            in: value,
+            atUTF16Offset: matchEnd,
+            removedBoundaryOffsets: removedBoundaryOffsets
+          )
         ? "~ " : "~"
       redacted.replaceSubrange(range, with: replacement)
     }
@@ -175,14 +179,34 @@ final class EventLogger {
     removedBoundaryOffsets: Set<Int>
   ) -> Bool {
     removedBoundaryOffsets.contains(offset)
-      || hasVisibleHomeBoundary(in: value, atUTF16Offset: offset)
+      || hasVisibleHomeBoundary(
+        in: value,
+        atUTF16Offset: offset,
+        removedBoundaryOffsets: removedBoundaryOffsets
+      )
   }
 
-  private static func hasVisibleHomeBoundary(in value: String, atUTF16Offset offset: Int) -> Bool {
+  private static func hasVisibleHomeBoundary(
+    in value: String,
+    atUTF16Offset offset: Int,
+    removedBoundaryOffsets: Set<Int>
+  ) -> Bool {
     guard let scalar = nextScalar(in: value, atUTF16Offset: offset) else { return true }
-    if isUnconditionalHomeBoundary(scalar) { return true }
-    guard scalar.value == 0x2D || scalar.value == 0x2E else { return false }
-    return tokenEnds(in: value, atUTF16Offset: offset + 1)
+    if scalar.value == 0x2F || CharacterSet.whitespacesAndNewlines.contains(scalar) {
+      return true
+    }
+    guard CharacterSet.punctuationCharacters.contains(scalar) else { return false }
+
+    var cursor = offset
+    while let punctuation = nextScalar(in: value, atUTF16Offset: cursor),
+      CharacterSet.punctuationCharacters.contains(punctuation)
+    {
+      cursor += punctuation.value > 0xFFFF ? 2 : 1
+      if isProseDelimiter(punctuation) || removedBoundaryOffsets.contains(cursor) { return true }
+    }
+    return nextScalar(in: value, atUTF16Offset: cursor).map({
+      CharacterSet.whitespacesAndNewlines.contains($0)
+    }) ?? true
   }
 
   private static func nextScalar(in value: String, atUTF16Offset offset: Int) -> UnicodeScalar? {
@@ -190,18 +214,16 @@ final class EventLogger {
     return index < value.endIndex ? value[index...].unicodeScalars.first : nil
   }
 
-  private static func isUnconditionalHomeBoundary(_ scalar: UnicodeScalar) -> Bool {
-    if scalar.value == 0x2F || CharacterSet.whitespacesAndNewlines.contains(scalar) {
+  private static func isProseDelimiter(_ scalar: UnicodeScalar) -> Bool {
+    if [0x21, 0x22, 0x27, 0x29, 0x2C, 0x3A, 0x3B, 0x3F, 0x5D, 0x7D, 0x2026].contains(
+      scalar.value)
+    {
       return true
     }
-    return [0x21, 0x22, 0x27, 0x29, 0x2C, 0x3A, 0x3B, 0x3F, 0x5D, 0x7D].contains(
-      scalar.value)
-  }
-
-  private static func tokenEnds(in value: String, atUTF16Offset offset: Int) -> Bool {
-    guard let scalar = nextScalar(in: value, atUTF16Offset: offset) else { return true }
-    return CharacterSet.whitespacesAndNewlines.contains(scalar)
-      || [0x22, 0x27, 0x29, 0x5D, 0x7D].contains(scalar.value)
+    let category = scalar.properties.generalCategory
+    return category == .closePunctuation || category == .initialPunctuation
+      || category == .finalPunctuation
+      || (category == .dashPunctuation && scalar.value != 0x2D)
   }
 
   private static func redactCredentials(in value: String) -> String {

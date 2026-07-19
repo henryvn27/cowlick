@@ -163,6 +163,22 @@ final class DiagnosticsTests: XCTestCase {
     XCTAssertTrue(output.contains("dot-prefix \(customHome.path).dev"))
   }
 
+  func testCustomHomeBoundaryHandlesUnicodeAndRemovedPunctuationRuns() {
+    let customHome = URL(fileURLWithPath: "/Network/Homes/alice")
+    let input =
+      "smart \u{201C}\(customHome.path)\u{201D} em \(customHome.path)\u{2014}failed ellipsis \(customHome.path)\u{2026}Next dots \(customHome.path)... next cluster \(customHome.path)...\u{201D})Next nbsp \(customHome.path).\u{00A0}Next control \(customHome.path).\u{0000}Next ignorable \(customHome.path).\u{034F}Next"
+    let output = EventLogger.sanitizeError(input, homeDirectory: customHome)
+
+    XCTAssertTrue(output.contains("smart \u{201C}~\u{201D}"))
+    XCTAssertTrue(output.contains("em ~\u{2014}failed"))
+    XCTAssertTrue(output.contains("ellipsis ~\u{2026}Next"))
+    XCTAssertTrue(output.contains("dots ~... next"))
+    XCTAssertTrue(output.contains("cluster ~...\u{201D})Next"))
+    XCTAssertTrue(output.contains("nbsp ~.Next"))
+    XCTAssertTrue(output.contains("control ~.Next"))
+    XCTAssertTrue(output.contains("ignorable ~.Next"))
+  }
+
   func testSanitizationRetainedScalarBoundFailsClosedForCombiningInput() {
     let input = "e" + String(repeating: "\u{0301}", count: 10_000)
     let output = EventLogger.sanitizeError(input)
