@@ -15,7 +15,7 @@ Cowlick is a native, local-first macOS companion for OpenAI Codex. It stays hidd
 
 ## What it does
 
-- Shows working, approval, completed, failed, and multi-session states.
+- Shows working, approval, completed, and multi-session Codex lifecycle states. Cowlick's failure presentation is reserved for its own bridge and self-test diagnostics; the available Codex hooks do not provide authoritative task-failure state.
 - Uses official Codex lifecycle hooks; it does not parse transcripts.
 - Matches approval decisions to a unique pending request and never defaults to Allow.
 - Falls back to Codex's normal approval UI if the app is unavailable, disconnected, malformed, or timed out.
