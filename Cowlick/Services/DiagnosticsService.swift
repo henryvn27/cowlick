@@ -11,44 +11,67 @@ struct DiagnosticsService {
     let caps = await store.capsLockService.supportStatus()
     let hook = hookInstaller.status()
     let hookTrust = await CodexHookTrustService().inspect()
-    let displays = NSScreen.screens.enumerated().map { index, screen in
-      let notch =
-        NotchGeometryResolver.resolve(
-          screen: screen, contentSize: NotchTheme.compactSize, showOnNonNotch: true)?.hasNotch
-        == true
-      return
-        "Display \(index + 1): \(Int(screen.frame.width))×\(Int(screen.frame.height)), notch=\(notch), builtIn=\(CGDisplayIsBuiltin(screen.displayID) != 0)"
-    }.joined(separator: "\n")
-    let events = store.eventLogger.recentEvents.map {
-      "\($0.timestamp.formatted(.iso8601)) \($0.event) \($0.project) \($0.outcome)"
-    }.joined(separator: "\n")
-    let errors = store.eventLogger.recentErrors.joined(separator: "\n")
-    let architecture = ProcessInfo.processInfo.machineArchitecture
+    let summary = Self.formatFields([
+      ("Version", "\(ProductVersion.marketing) (\(ProductVersion.build))"),
+      ("Protocol", String(ProductVersion.bridgeProtocol)),
+      ("macOS", ProcessInfo.processInfo.operatingSystemVersionString),
+      ("Architecture", ProcessInfo.processInfo.machineArchitecture),
+      ("Launch at login", LaunchAtLoginService.statusDescription),
+      ("Hook status", hook.summary),
+      ("Codex hook trust", hookTrust.state.summary),
+      ("Helper installed", String(hook.helperInstalled)),
+      (
+        "Socket status",
+        FileManager.default.fileExists(atPath: AppSupportPaths.socketURL.path)
+          ? "listening" : "offline"
+      ),
+      ("Codex quota", usageStore.officialStatus),
+      ("Third-party reset forecast", usageStore.forecastStatus),
+      ("Caps Lock", caps.summary),
+    ])
+    let displays = Self.formatLines(
+      NSScreen.screens.enumerated().map { index, screen in
+        let notch =
+          NotchGeometryResolver.resolve(
+            screen: screen, contentSize: NotchTheme.compactSize, showOnNonNotch: true)?.hasNotch
+          == true
+        return
+          "Display \(index + 1): \(Int(screen.frame.width))×\(Int(screen.frame.height)), notch=\(notch), builtIn=\(CGDisplayIsBuiltin(screen.displayID) != 0)"
+      },
+      empty: "No displays reported"
+    )
+    let eventLines = store.eventLogger.recentEvents.map(Self.formatEvent)
+    let events = eventLines.isEmpty ? "None" : eventLines.joined(separator: "\n")
+    let errors = Self.formatLines(store.eventLogger.recentErrors, empty: "None")
 
     return """
       Cowlick Diagnostics
-      Version: \(ProductVersion.marketing) (\(ProductVersion.build))
-      Protocol: \(ProductVersion.bridgeProtocol)
-      macOS: \(ProcessInfo.processInfo.operatingSystemVersionString)
-      Architecture: \(architecture)
-      Launch at login: \(LaunchAtLoginService.statusDescription)
-      Hook status: \(hook.summary)
-      Codex hook trust: \(hookTrust.state.summary)
-      Helper installed: \(hook.helperInstalled)
-      Socket status: \(FileManager.default.fileExists(atPath: AppSupportPaths.socketURL.path) ? "listening" : "offline")
-      Codex quota: \(usageStore.officialStatus)
-      Third-party reset forecast: \(usageStore.forecastStatus)
-      Caps Lock: \(caps.summary)
+      \(summary)
 
       Displays:
-      \(displays.isEmpty ? "No displays reported" : displays)
+      \(displays)
 
       Recent sanitized events:
-      \(events.isEmpty ? "None" : events)
+      \(events)
 
       Recent sanitized errors:
-      \(errors.isEmpty ? "None" : errors)
+      \(errors)
       """
+  }
+
+  static func formatFields(_ fields: [(label: String, value: String)]) -> String {
+    fields.map { "\($0.label): \(EventLogger.sanitizeError($0.value))" }.joined(separator: "\n")
+  }
+
+  static func formatLines(_ values: [String], empty: String) -> String {
+    (values.isEmpty ? [empty] : values).map { EventLogger.sanitizeError($0) }.joined(
+      separator: "\n")
+  }
+
+  static func formatEvent(_ record: SanitizedBridgeRecord) -> String {
+    [
+      record.timestamp.formatted(.iso8601), record.event, record.project, record.outcome,
+    ].map { EventLogger.sanitizeError($0) }.joined(separator: " ")
   }
 }
 

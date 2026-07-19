@@ -36,6 +36,205 @@ final class DiagnosticsTests: XCTestCase {
     XCTAssertFalse(EventLogger.sanitizeProject("Project\nInjected").contains("\n"))
   }
 
+  func testControlsCannotSplitPathOrCredentialRecognizers() {
+    let input =
+      "failed /U\u{E000}s\u{001B}ers/ali\u{E000}ce/private Authori\u{E000}za\u{001B}tion: Be\u{E000}a\u{001B}rer sk-live-\u{E000}ta\u{001B}il OPEN\u{001B}AI_API_K\u{E000}EY=sk-key-\u{E000}ta\u{001B}il"
+    let output = EventLogger.sanitizeError(input)
+
+    XCTAssertFalse(output.localizedCaseInsensitiveContains("alice"))
+    XCTAssertFalse(output.contains("sk-live"))
+    XCTAssertFalse(output.contains("tail"))
+    XCTAssertFalse(output.contains("sk-key"))
+    XCTAssertFalse(output.contains("\u{E000}"))
+    XCTAssertTrue(output.contains("~/private"))
+    XCTAssertTrue(output.contains("authorization=<redacted>"))
+    XCTAssertTrue(output.contains("OPENAI_API_KEY=<redacted>"))
+    XCTAssertFalse(
+      EventLogger.sanitizeProject("token=x\u{E000}sk\u{001B}-live").contains("sk-live"))
+  }
+
+  func testUnicodeSeparatorsAndFormatScalarsCannotSplitPathOrCredentialRecognizers() {
+    let input =
+      "failed /U\u{00A0}s\u{2003}ers/Ali\u{2060}\u{00A0}ce/private OPEN\u{2003}AI_API_K\u{00A0}E\u{2060}Y=sk-key-\u{2003}ta\u{2060}il Authorization: Be\u{00A0}ar\u{2060}er sk-live-\u{2003}se\u{2060}cret"
+    let output = EventLogger.sanitizeError(input)
+
+    XCTAssertFalse(output.localizedCaseInsensitiveContains("alice"))
+    XCTAssertFalse(output.contains("sk-key"))
+    XCTAssertFalse(output.contains("tail"))
+    XCTAssertFalse(output.contains("sk-live"))
+    XCTAssertFalse(output.contains("secret"))
+    XCTAssertTrue(output.contains("~/private"))
+    XCTAssertTrue(output.contains("OPENAI_API_KEY=<redacted>"))
+    XCTAssertTrue(output.contains("authorization=<redacted>"))
+    XCTAssertFalse(
+      EventLogger.sanitizeProject("token=x\u{00A0}sk\u{2003}-live").contains("sk-live"))
+  }
+
+  func testDefaultIgnorablesCannotSplitPathsCredentialsOrBearer() {
+    let input =
+      "failed /U\u{FE0F}s\u{034F}ers/Alice/private t\u{FE0F}ok\u{034F}en=token-secret api\u{FE0F}_\u{034F}key=api-secret Be\u{FE0F}ar\u{034F}er bearer-secret"
+    let output = EventLogger.sanitizeError(input)
+
+    XCTAssertFalse(output.localizedCaseInsensitiveContains("alice"))
+    XCTAssertFalse(output.contains("token-secret"))
+    XCTAssertFalse(output.contains("api-secret"))
+    XCTAssertFalse(output.contains("bearer-secret"))
+    XCTAssertTrue(output.contains("~/private"))
+    XCTAssertTrue(output.contains("token=<redacted>"))
+    XCTAssertTrue(output.contains("api_key=<redacted>"))
+    XCTAssertTrue(output.contains("bearer=<redacted>"))
+  }
+
+  func testRedactsPrefixedSuffixedAndCommonCredentialIdentifiers() {
+    let secrets = [
+      "openai-secret", "access-secret", "refresh-secret", "client-secret", "anthropic-secret",
+      "suffix-secret", "provider-secret",
+    ]
+    let input = """
+      OPENAI_API_KEY=openai-secret,
+      access_token=access-secret;
+      refresh_token: refresh-secret;
+      client_secret='client-secret';
+      ANTHROPIC-API-KEY="anthropic-secret";
+      api_key_openai=suffix-secret;
+      provider_auth_token_prod=provider-secret
+      """
+    let output = EventLogger.sanitizeError(input)
+
+    for secret in secrets {
+      XCTAssertFalse(output.contains(secret), "\(secret): \(output)")
+    }
+    XCTAssertEqual(output.components(separatedBy: "<redacted>").count - 1, secrets.count)
+  }
+
+  func testQuotedCredentialValuesHonorEscapesAndUnmatchedQuotedKeysFallBack() {
+    XCTAssertEqual(EventLogger.sanitizeError(#"token="abc\"def""#), "token=<redacted>")
+    XCTAssertEqual(EventLogger.sanitizeError(#""token=secret"#), "token=<redacted>")
+  }
+
+  func testBearerDelimiterFormsAndProtectedContinuationsFailClosed() {
+    XCTAssertEqual(
+      EventLogger.sanitizeError("bearer=first; Bearer: second"),
+      "bearer=<redacted>; Bearer=<redacted>"
+    )
+    XCTAssertEqual(
+      EventLogger.sanitizeError("Authorization: Bearer sk-live-\n tail"),
+      "authorization=<redacted>"
+    )
+    XCTAssertEqual(
+      EventLogger.sanitizeError(#"Bearer "sk-live" tail; visible"#),
+      "bearer=<redacted>; visible"
+    )
+  }
+
+  func testRedactsExactStandardizedCustomHomeBeforeUsersFallback() {
+    let customHome = URL(fileURLWithPath: "/Network/Homes/teams/../alice").standardizedFileURL
+    let input =
+      "custom /net\u{001B}work/hOMes/ali\u{E000}ce/private fallback /uSe\u{E000}Rs/Bob/project boundary /UsersBackup/kept"
+    let output = EventLogger.sanitizeError(input, homeDirectory: customHome)
+
+    XCTAssertFalse(output.localizedCaseInsensitiveContains("alice"))
+    XCTAssertFalse(output.localizedCaseInsensitiveContains("bob"))
+    XCTAssertTrue(output.contains("custom ~/private"))
+    XCTAssertTrue(output.contains("fallback ~/project"))
+    XCTAssertTrue(output.contains("/UsersBackup/kept"))
+  }
+
+  func testSanitizationRetainedScalarBoundFailsClosedForCombiningInput() {
+    let input = "e" + String(repeating: "\u{0301}", count: 10_000)
+    let output = EventLogger.sanitizeError(input)
+
+    XCTAssertEqual(output, "<redacted>")
+  }
+
+  func testSanitizationFailsClosedForLongNonmatchingInput() {
+    let input = String(repeating: "x", count: 1_000_000)
+    let output = EventLogger.sanitizeError(input)
+
+    XCTAssertEqual(output, "<redacted>")
+  }
+
+  func testSanitizationBoundCountsRetainedScalarsAfterRemovingObfuscators() {
+    let customHome = URL(fileURLWithPath: "/Network/Homes/alice")
+    let input = String(repeating: "\u{2060}", count: 4_078) + customHome.path
+
+    XCTAssertEqual(EventLogger.sanitizeError(input, homeDirectory: customHome), "~")
+
+    let retainedPrefix = String(repeating: " ", count: 4_078) + customHome.path
+    XCTAssertEqual(
+      EventLogger.sanitizeError(retainedPrefix, homeDirectory: customHome), "<redacted>")
+  }
+
+  func testSanitizationFailsClosedWhenObfuscatorsExceedRawScanBound() {
+    let customHome = URL(fileURLWithPath: "/Network/Homes/alice")
+    let input = String(repeating: "\u{2060}", count: 20_000) + customHome.path
+
+    XCTAssertEqual(EventLogger.sanitizeError(input, homeDirectory: customHome), "<redacted>")
+  }
+
+  func testLoggerNormalizesControlCharactersBeforeRetainingOrLoggingErrors() {
+    let input =
+      "first\r\nsecond\ttab\u{001B}[31m red\u{0000}null\u{0007}bell\u{001F}unit\u{007F}delete\u{0085}next\u{2028}last /Users/alice/private token=log-secret"
+    let output = EventLogger.sanitizeError(input)
+    let unsafeCharacters = CharacterSet.controlCharacters.union(.newlines)
+
+    XCTAssertFalse(output.unicodeScalars.contains { unsafeCharacters.contains($0) })
+    XCTAssertFalse(output.contains("alice"))
+    XCTAssertFalse(output.contains("log-secret"))
+    XCTAssertTrue(output.contains("firstsecondtab[31m rednullbellunitdeletenextlast"))
+
+    let logger = EventLogger()
+    logger.error(input)
+    XCTAssertEqual(logger.recentErrors, [output])
+  }
+
+  func testDiagnosticsExportBoundarySanitizesUntrustedHookAndTrustSummaries() {
+    let hook = HookInstallationStatus(
+      installedEvents: [],
+      helperInstalled: false,
+      configurationExists: true,
+      error:
+        "invalid config\r\nInjected: yes\t\u{001B}[31m /Users/alice/private token=hook-secret\u{0000}"
+    )
+    let trust = CodexHookTrustReport(
+      state: .unavailable(
+        "probe failed\u{0007}\nFake: trusted\u{0085}Authorization: Bearer trust-secret"),
+      eventStatuses: [:]
+    )
+    let output = DiagnosticsService.formatFields([
+      ("Hook status", hook.summary),
+      ("Codex hook trust", trust.state.summary),
+    ])
+    let lines = output.split(separator: "\n", omittingEmptySubsequences: false)
+    let unsafeCharacters = CharacterSet.controlCharacters.union(.newlines)
+
+    XCTAssertEqual(lines.count, 2)
+    XCTAssertFalse(
+      lines.contains { line in
+        line.unicodeScalars.contains { unsafeCharacters.contains($0) }
+      })
+    XCTAssertFalse(output.contains("alice"))
+    XCTAssertFalse(output.contains("hook-secret"))
+    XCTAssertFalse(output.contains("trust-secret"))
+    XCTAssertTrue(output.contains("Hook status: invalid configInjected: yes[31m ~/private"))
+    XCTAssertTrue(output.contains("Codex hook trust: probe failedFake: authorization=<redacted>"))
+  }
+
+  func testDiagnosticsSanitizesEventScalarsBeforeAddingSeparators() {
+    let record = SanitizedBridgeRecord(
+      id: UUID(),
+      timestamp: Date(timeIntervalSince1970: 0),
+      event: "OPENAI_API_KEY",
+      project: "=separate-field-value",
+      outcome: "accepted\nInjected"
+    )
+    let output = DiagnosticsService.formatEvent(record)
+
+    XCTAssertTrue(output.contains("OPENAI_API_KEY =separate-field-value acceptedInjected"))
+    XCTAssertFalse(output.contains("<redacted>"))
+    XCTAssertEqual(output.split(separator: "\n").count, 1)
+  }
+
   func testKeepsOnlyTenSanitizedEvents() {
     let logger = EventLogger()
     for index in 0..<12 {
