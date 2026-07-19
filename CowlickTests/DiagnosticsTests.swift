@@ -437,6 +437,38 @@ final class DiagnosticsTests: XCTestCase {
     }
   }
 
+  func testStructuredAuthorizationValuesRemainOpaqueAcrossDelimiters() {
+    let aws = EventLogger.sanitizeError(
+      "Authorization: AWS4-HMAC-SHA256 Credential=AKIAEXAMPLE/20260719/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-date, Signature=deadbeef"
+    )
+    XCTAssertEqual(aws, "authorization=<redacted>")
+    for secret in ["AKIAEXAMPLE", "Credential", "SignedHeaders", "Signature", "deadbeef"] {
+      XCTAssertFalse(aws.contains(secret), aws)
+    }
+
+    for input in [
+      "Authorization: Digest username=Mufasa, realm=testrealm@host.com, nonce=abc123, uri=/dir/index.html, response=feedface",
+      #"Authorization: Digest username="Mufasa", realm="testrealm", nonce="abc123", response="feedface""#,
+    ] {
+      let output = EventLogger.sanitizeError(input)
+      XCTAssertEqual(output, "authorization=<redacted>")
+      for secret in ["Mufasa", "nonce", "abc123", "response", "feedface"] {
+        XCTAssertFalse(output.contains(secret), output)
+      }
+    }
+
+    XCTAssertEqual(
+      EventLogger.sanitizeError(
+        "Authorization: AWS4-HMAC-SHA256 Credential=AKIAEXAMPLE/request, SignedHeaders=host;x-amz-date, Signature=deadbeef api.key: following-secret"
+      ),
+      "authorization=<redacted> api.key=<redacted>"
+    )
+    XCTAssertEqual(
+      EventLogger.sanitizeError("Bearer bearer.secret; public, text"),
+      "bearer=<redacted>; public, text"
+    )
+  }
+
   func testProtectedValuesHonorPairedUnicodeWrappersAndFailClosed() {
     XCTAssertEqual(
       EventLogger.sanitizeError("Bearer “first;secret tail” visible"),
@@ -511,11 +543,11 @@ final class DiagnosticsTests: XCTestCase {
     )
     XCTAssertEqual(
       EventLogger.sanitizeError(#"Authorization: Bearer prefix "safe,value", visible"#),
-      "authorization=<redacted>, visible"
+      "authorization=<redacted>"
     )
     XCTAssertEqual(
       EventLogger.sanitizeError("Authorization: Bearer prefix “safe,value”, visible"),
-      "authorization=<redacted>, visible"
+      "authorization=<redacted>"
     )
     XCTAssertEqual(
       EventLogger.sanitizeError(#"Bearer "safe" visible; public"#),
@@ -523,7 +555,7 @@ final class DiagnosticsTests: XCTestCase {
     )
     XCTAssertEqual(
       EventLogger.sanitizeError("Authorization: Bearer “safe” visible, public"),
-      "authorization=<redacted>, public"
+      "authorization=<redacted>"
     )
   }
 

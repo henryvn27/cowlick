@@ -26,6 +26,11 @@ final class EventLogger {
     let normalizedLabel: String
   }
 
+  private enum ProtectedValueKind {
+    case authorization
+    case bearer
+  }
+
   private static let maximumInputScalars = 4_096
   private static let maximumScannedInputScalars = maximumInputScalars * 4
   private static let maximumCredentialLabelWords = 6
@@ -324,7 +329,7 @@ final class EventLogger {
       let hasDelimitedValue =
         whitespaceEnd < scalars.count && isCredentialDelimiter(scalars[whitespaceEnd])
       if whitespaceEnd > afterIdentifier, !hasDelimitedValue, isBearerIdentifier(identifier),
-        let valueEnd = protectedValueEnd(in: scalars, from: whitespaceEnd)
+        let valueEnd = protectedValueEnd(in: scalars, from: whitespaceEnd, kind: .bearer)
       {
         output.append(contentsOf: string(from: scalars[cursor..<index]))
         output.append("bearer=<redacted>")
@@ -335,13 +340,14 @@ final class EventLogger {
 
       if let field = sensitiveField(in: scalars, from: index) {
         let valueStart = skipWhitespace(in: scalars, from: field.delimiter + 1)
-        let protectsContinuation =
-          isAuthorizationIdentifier(field.normalizedLabel)
-          || isBearerIdentifier(field.normalizedLabel)
-        let valueEnd =
-          protectsContinuation
-          ? protectedValueEnd(in: scalars, from: valueStart)
-          : credentialValueEnd(in: scalars, from: valueStart)
+        let valueEnd: Int?
+        if isAuthorizationIdentifier(field.normalizedLabel) {
+          valueEnd = protectedValueEnd(in: scalars, from: valueStart, kind: .authorization)
+        } else if isBearerIdentifier(field.normalizedLabel) {
+          valueEnd = protectedValueEnd(in: scalars, from: valueStart, kind: .bearer)
+        } else {
+          valueEnd = credentialValueEnd(in: scalars, from: valueStart)
+        }
         if let valueEnd {
           output.append(contentsOf: string(from: scalars[cursor..<field.replacementStart]))
           output.append(
@@ -414,7 +420,11 @@ final class EventLogger {
     return end > start ? end : nil
   }
 
-  private static func protectedValueEnd(in scalars: [UnicodeScalar], from start: Int) -> Int? {
+  private static func protectedValueEnd(
+    in scalars: [UnicodeScalar],
+    from start: Int,
+    kind: ProtectedValueKind
+  ) -> Int? {
     guard start < scalars.count else { return nil }
     var end = start
     var quote: UnicodeScalar?
@@ -455,7 +465,7 @@ final class EventLogger {
         continue
       }
       if isUnicodeQuoteMarker(scalar) { return scalars.count }
-      if isExplicitValueTerminator(scalar) { break }
+      if kind == .bearer, isExplicitValueTerminator(scalar) { break }
       if CharacterSet.whitespacesAndNewlines.contains(scalar) {
         let nextField = skipWhitespace(in: scalars, from: end)
         if nextField < scalars.count,
