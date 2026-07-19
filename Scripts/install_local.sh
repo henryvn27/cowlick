@@ -3,6 +3,17 @@ set -euo pipefail
 
 script_dir="${0:A:h}"
 project_root="${script_dir:h}"
+
+usage() {
+  print "usage: $0"
+}
+
+case "${1:-}" in
+  "") [[ $# == 0 ]] || { usage >&2; exit 2; } ;;
+  -h|--help) [[ $# == 1 ]] || { usage >&2; exit 2; }; usage; exit 0 ;;
+  *) usage >&2; exit 2 ;;
+esac
+
 if [[ -z "${COWLICK_LOCAL_LIFECYCLE_LOCK_HELD:-}" ]]; then
   mkdir -p "$HOME/.codex"
   export COWLICK_LOCAL_LIFECYCLE_LOCK_HELD=1
@@ -16,6 +27,7 @@ backup=""
 install_started=false
 legacy_present=false
 hooks_updated=false
+legacy_removed=false
 rollback_directory="$(mktemp -d "${TMPDIR%/}/cowlick-install-rollback.XXXXXX")"
 chmod 700 "$rollback_directory"
 
@@ -118,14 +130,15 @@ for _ in {1..20}; do
 done
 $bridge_ready || { print -u2 "Installed app did not start its authenticated bridge."; exit 1; }
 "$script_dir/verify_installation.sh" --app "$destination" --development
-if [[ -n "$backup" && "$backup" == "$HOME/Applications/Cowlick.app.backup-"* ]]; then
-  /bin/rm -rf "$backup"
-fi
 if $legacy_present && [[ -d "$legacy_destination" ]]; then
   /bin/rm -rf "$legacy_destination"
-  print "Removed the replaced NotchRelay development app."
+  legacy_removed=true
 fi
 install_started=false
+$legacy_removed && print "Removed the replaced NotchRelay development app."
+if [[ -n "$backup" && "$backup" == "$HOME/Applications/Cowlick.app.backup-"* ]]; then
+  /bin/rm -rf "$backup" || print -u2 "Could not remove the previous Cowlick app backup at $backup"
+fi
 
 print "Installed Cowlick locally at $destination"
 print "Open Codex /hooks once to review and trust the four Cowlick commands if prompted."

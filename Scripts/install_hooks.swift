@@ -414,13 +414,16 @@ func restoreIntegration(from directory: URL) throws {
   let savedHooks =
     fileManager.fileExists(atPath: hooksSnapshot.path)
     ? try Data(contentsOf: hooksSnapshot) : nil
-  if let savedHooks { _ = try root(from: savedHooks) }
   for source in [helperSnapshot, legacyHelperSnapshot]
   where fileManager.fileExists(atPath: source.path)
     && !fileManager.isExecutableFile(atPath: source.path)
   {
     throw InstallerFailure.helperMissing
   }
+
+  let hooksExist = fileManager.fileExists(atPath: hooksURL.path)
+  let existing = hooksExist ? try Data(contentsOf: hooksURL) : Data("{}".utf8)
+  let hookRestoration = Result { try restoringOwnedHandlers(in: existing, from: savedHooks) }
 
   try validateHelperRemoval(shim: shim, installedHelper: installedHelper)
   try validateHelperRemoval(shim: legacyShim, installedHelper: legacyInstalledHelper)
@@ -434,11 +437,16 @@ func restoreIntegration(from directory: URL) throws {
       from: legacyHelperSnapshot, shim: legacyShim, installedHelper: legacyInstalledHelper)
   }
 
-  let hooksExist = fileManager.fileExists(atPath: hooksURL.path)
-  let existing = hooksExist ? try Data(contentsOf: hooksURL) : Data("{}".utf8)
-  let restored = try restoringOwnedHandlers(in: existing, from: savedHooks)
-  if restored != existing {
-    try replaceHooks(with: restored, expected: hooksExist ? existing : nil)
+  switch hookRestoration {
+  case .success(let restored):
+    if restored != existing {
+      try replaceHooks(with: restored, expected: hooksExist ? existing : nil)
+    }
+  case .failure(let error):
+    if let stripped = try? restoringOwnedHandlers(in: existing, from: nil), stripped != existing {
+      try replaceHooks(with: stripped, expected: hooksExist ? existing : nil)
+    }
+    throw error
   }
 }
 
@@ -451,12 +459,12 @@ do {
     try withConfigurationLock {
       try validateHelperInstallation(from: source)
       try validateHelperRemoval(shim: legacyShim, installedHelper: legacyInstalledHelper)
+      let existed = fileManager.fileExists(atPath: hooksURL.path)
+      let existing = existed ? try Data(contentsOf: hooksURL) : Data("{}".utf8)
+      let updated = try merge(existing)
       if let snapshot { try snapshotIntegration(to: snapshot) }
       do {
         try installHelper(from: source)
-        let existed = fileManager.fileExists(atPath: hooksURL.path)
-        let existing = existed ? try Data(contentsOf: hooksURL) : Data("{}".utf8)
-        let updated = try merge(existing)
         if updated != existing {
           try replaceHooks(with: updated, expected: existed ? existing : nil)
         }

@@ -314,6 +314,47 @@ final class HookInstallerTests: XCTestCase {
     XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.installer.hooksURL.path))
   }
 
+  func testInstallRejectsMalformedAndNonObjectHooksBeforeCreatingHelper() throws {
+    for hooks in [Data("{".utf8), Data("[]".utf8)] {
+      let fixture = try makeInstaller(bundledContents: "new-helper")
+      defer { try? FileManager.default.removeItem(at: fixture.home) }
+      try FileManager.default.createDirectory(
+        at: fixture.installer.hooksURL.deletingLastPathComponent(),
+        withIntermediateDirectories: true)
+      try hooks.write(to: fixture.installer.hooksURL)
+
+      XCTAssertThrowsError(try fixture.installer.installOrRepair())
+
+      XCTAssertEqual(try Data(contentsOf: fixture.installer.hooksURL), hooks)
+      XCTAssertFalse(
+        FileManager.default.fileExists(atPath: fixture.installer.installedHelperURL.path))
+      XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.installer.shimURL.path))
+    }
+  }
+
+  func testInstallRejectsMalformedAndNonObjectHooksBeforeReplacingOwnedHelper() throws {
+    for hooks in [Data("{".utf8), Data("[]".utf8)] {
+      let fixture = try makeInstaller(bundledContents: "new-helper")
+      defer { try? FileManager.default.removeItem(at: fixture.home) }
+      try installOwnedHelper(fixture.installer, contents: "old-helper")
+      let originalShimDestination = try FileManager.default.destinationOfSymbolicLink(
+        atPath: fixture.installer.shimURL.path)
+      try FileManager.default.createDirectory(
+        at: fixture.installer.hooksURL.deletingLastPathComponent(),
+        withIntermediateDirectories: true)
+      try hooks.write(to: fixture.installer.hooksURL)
+
+      XCTAssertThrowsError(try fixture.installer.installOrRepair())
+
+      XCTAssertEqual(try Data(contentsOf: fixture.installer.hooksURL), hooks)
+      XCTAssertEqual(
+        try Data(contentsOf: fixture.installer.installedHelperURL), Data("old-helper".utf8))
+      XCTAssertEqual(
+        try FileManager.default.destinationOfSymbolicLink(atPath: fixture.installer.shimURL.path),
+        originalShimDestination)
+    }
+  }
+
   func testRefreshReplacesSymlinkedHelperWithoutChangingItsTarget() throws {
     let fixture = try makeInstaller(bundledContents: "current-helper")
     defer { try? FileManager.default.removeItem(at: fixture.home) }

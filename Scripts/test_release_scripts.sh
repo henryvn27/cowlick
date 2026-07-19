@@ -535,6 +535,66 @@ print -n -- \
   > "$wrapper_scripts/verify_installation.sh"
 chmod 755 "$wrapper_scripts/verify_installation.sh"
 
+wrapper_argument_home="$temporary_directory/wrapper-argument-home"
+wrapper_help_output="$temporary_directory/wrapper-install-help"
+env PATH="$wrapper_fake_bin:$PATH" HOME="$wrapper_argument_home" \
+  COWLICK_HOME="$wrapper_argument_home" TMPDIR="$temporary_directory" \
+  "$wrapper_scripts/install_local.sh" --help > "$wrapper_help_output"
+grep -Fq 'usage:' "$wrapper_help_output"
+[[ ! -e "$wrapper_argument_home" ]]
+for invalid_arguments in '--unknown' 'extra' '--help extra'; do
+  if env PATH="$wrapper_fake_bin:$PATH" HOME="$wrapper_argument_home" \
+    COWLICK_HOME="$wrapper_argument_home" TMPDIR="$temporary_directory" \
+    "$wrapper_scripts/install_local.sh" ${(z)invalid_arguments} >/dev/null 2>&1; then
+    print -u2 "invalid local installer arguments unexpectedly succeeded: $invalid_arguments"
+    exit 1
+  fi
+  [[ ! -e "$wrapper_argument_home" ]]
+done
+
+assert_invalid_wrapper_hooks_roll_back() {
+  local name="$1"
+  local payload="$2"
+  local home="$temporary_directory/wrapper-invalid-$name-home"
+  local output="$temporary_directory/wrapper-invalid-$name-output"
+  local app_helper="$home/Applications/Cowlick.app/Contents/Helpers/cowlick-hook"
+  local installed_helper="$home/Library/Application Support/Cowlick/bin/cowlick-hook"
+  local shim="$home/.local/bin/cowlick-hook"
+  local hooks="$home/.codex/hooks.json"
+  mkdir -p "${app_helper:h}" "${installed_helper:h}" "${shim:h}" "${hooks:h}"
+  print -n -- "old-app-$name" > "$home/Applications/Cowlick.app/marker"
+  print -r -- '#!/bin/zsh' > "$app_helper"
+  print -r -- "# old-app-helper-$name" >> "$app_helper"
+  print -r -- 'exit 0' >> "$app_helper"
+  print -r -- '#!/bin/zsh' > "$installed_helper"
+  print -r -- "# old-installed-helper-$name" >> "$installed_helper"
+  print -r -- 'exit 0' >> "$installed_helper"
+  chmod 755 "$app_helper" "$installed_helper"
+  ln -s "$installed_helper" "$shim"
+  print -n -- "$payload" > "$hooks"
+  local hooks_hash="$(shasum -a 256 "$hooks" | awk '{print $1}')"
+  local helper_hash="$(shasum -a 256 "$installed_helper" | awk '{print $1}')"
+
+  if env PATH="$wrapper_fake_bin:$PATH" HOME="$home" COWLICK_HOME="$home" \
+    TMPDIR="$temporary_directory" COWLICK_TEST_REAL_SWIFT="$real_swift" \
+    COWLICK_TEST_HELPER_MARKER="new-$name" \
+    "$wrapper_scripts/install_local.sh" > "$output" 2>&1; then
+    print -u2 "$name hooks unexpectedly allowed a local install"
+    exit 1
+  fi
+  grep -Fq 'Local installation failed; restoring the previous Cowlick installation.' "$output"
+  grep -Fq "old-app-$name" "$home/Applications/Cowlick.app/marker"
+  grep -Fq "old-app-helper-$name" \
+    "$home/Applications/Cowlick.app/Contents/Helpers/cowlick-hook"
+  [[ "$(shasum -a 256 "$installed_helper" | awk '{print $1}')" == "$helper_hash" ]]
+  [[ "$(shasum -a 256 "$hooks" | awk '{print $1}')" == "$hooks_hash" ]]
+  [[ -L "$shim" && "$(readlink "$shim")" == "$installed_helper" ]]
+  [[ -z "$(find "$home/Applications" -maxdepth 1 -name 'Cowlick.app.backup-*' -print -quit)" ]]
+}
+
+assert_invalid_wrapper_hooks_roll_back malformed '{'
+assert_invalid_wrapper_hooks_roll_back non-object '[]'
+
 wait_for_process_barrier() {
   local barrier="$1"
   local process_id="$2"
@@ -678,6 +738,50 @@ grep -Fq 'retained-install' \
   "$install_before_rollback_home/Library/Application Support/Cowlick/bin/cowlick-hook"
 grep -Fq 'retained-install' \
   "$install_before_rollback_home/Applications/Cowlick.app/Contents/Helpers/cowlick-hook"
+
+legacy_cleanup_home="$temporary_directory/wrapper-legacy-cleanup-home"
+legacy_cleanup_output="$temporary_directory/wrapper-legacy-cleanup-output"
+legacy_cleanup_app_helper="$legacy_cleanup_home/Applications/Cowlick.app/Contents/Helpers/cowlick-hook"
+legacy_cleanup_legacy_app="$legacy_cleanup_home/Applications/NotchRelay.app"
+mkdir -p "${legacy_cleanup_app_helper:h}" "$legacy_cleanup_legacy_app"
+print -n -- 'old-app-before-legacy-cleanup' \
+  > "$legacy_cleanup_home/Applications/Cowlick.app/marker"
+print -r -- '#!/bin/zsh' > "$legacy_cleanup_app_helper"
+print -r -- '# old-helper-before-legacy-cleanup' >> "$legacy_cleanup_app_helper"
+print -r -- 'exit 0' >> "$legacy_cleanup_app_helper"
+chmod 755 "$legacy_cleanup_app_helper"
+COWLICK_HOME="$legacy_cleanup_home" "$real_swift" "$wrapper_scripts/install_hooks.swift" \
+  install --helper "$legacy_cleanup_app_helper" >/dev/null
+legacy_cleanup_hooks_hash="$(shasum -a 256 "$legacy_cleanup_home/.codex/hooks.json" | awk '{print $1}')"
+legacy_cleanup_helper_hash="$(shasum -a 256 \
+  "$legacy_cleanup_home/Library/Application Support/Cowlick/bin/cowlick-hook" | awk '{print $1}')"
+print -n -- 'protected' > "$legacy_cleanup_legacy_app/protected"
+chmod 500 "$legacy_cleanup_legacy_app"
+if env PATH="$wrapper_fake_bin:$PATH" HOME="$legacy_cleanup_home" \
+  COWLICK_HOME="$legacy_cleanup_home" TMPDIR="$temporary_directory" \
+  COWLICK_TEST_REAL_SWIFT="$real_swift" COWLICK_TEST_HELPER_MARKER=failed-legacy-cleanup \
+  "$wrapper_scripts/install_local.sh" > "$legacy_cleanup_output" 2>&1; then
+  chmod 700 "$legacy_cleanup_legacy_app"
+  print -u2 "local install unexpectedly survived failed legacy cleanup"
+  exit 1
+fi
+chmod 700 "$legacy_cleanup_legacy_app"
+grep -Fq 'Local installation failed; restoring the previous Cowlick installation.' \
+  "$legacy_cleanup_output"
+grep -Fq 'old-app-before-legacy-cleanup' \
+  "$legacy_cleanup_home/Applications/Cowlick.app/marker"
+grep -Fq 'old-helper-before-legacy-cleanup' \
+  "$legacy_cleanup_home/Applications/Cowlick.app/Contents/Helpers/cowlick-hook"
+[[ "$(shasum -a 256 "$legacy_cleanup_home/.codex/hooks.json" | awk '{print $1}')" \
+    == "$legacy_cleanup_hooks_hash" ]]
+[[ "$(shasum -a 256 \
+    "$legacy_cleanup_home/Library/Application Support/Cowlick/bin/cowlick-hook" | awk '{print $1}')" \
+    == "$legacy_cleanup_helper_hash" ]]
+[[ -L "$legacy_cleanup_home/.local/bin/cowlick-hook" ]]
+[[ "$(COWLICK_HOME="$legacy_cleanup_home" "$real_swift" \
+    "$wrapper_scripts/install_hooks.swift" status)" == healthy ]]
+[[ -z "$(find "$legacy_cleanup_home/Applications" -maxdepth 1 \
+    -name 'Cowlick.app.backup-*' -print -quit)" ]]
 
 release_workflow="$project_root/.github/workflows/release.yml"
 provenance_script="$script_dir/verify_release_provenance.sh"

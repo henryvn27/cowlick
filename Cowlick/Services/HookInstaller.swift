@@ -129,7 +129,6 @@ struct HookInstaller {
     }
     try withIntegrationLock {
       try validateLegacyHelperRemoval()
-      try installBundledHelper()
       let existed = fileManager.fileExists(atPath: hooksURL.path)
       let originalData = existed ? try Data(contentsOf: hooksURL) : Data("{}".utf8)
       let mergedData = try Self.merging(
@@ -137,6 +136,7 @@ struct HookInstaller {
         command: Self.hookCommand(for: shimURL),
         legacyCommands: [Self.hookCommand(for: legacyShimURL)])
 
+      try installBundledHelper()
       if existed, mergedData != originalData { try writePrivateBackup(originalData) }
       if !existed || mergedData != originalData {
         try atomicWrite(mergedData, to: hooksURL, expectedOriginal: existed ? originalData : nil)

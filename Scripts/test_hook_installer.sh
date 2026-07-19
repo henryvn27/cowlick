@@ -15,6 +15,50 @@ chmod 755 "$test_home/.local/bin"
 print -n -- '#!/bin/zsh\nexit 0\n' > "$helper"
 chmod 755 "$helper"
 
+assert_invalid_hooks_rejected_without_residue() {
+  local name="$1"
+  local payload="$2"
+  local invalid_home="$temporary_directory/$name-home"
+  local invalid_hooks="$invalid_home/.codex/hooks.json"
+  local invalid_snapshot="$temporary_directory/$name-snapshot"
+  mkdir -p "${invalid_hooks:h}"
+  print -n -- "$payload" > "$invalid_hooks"
+  local original_hash="$(shasum -a 256 "$invalid_hooks" | awk '{print $1}')"
+
+  if COWLICK_HOME="$invalid_home" swift "$script_dir/install_hooks.swift" install \
+    --helper "$helper" --snapshot "$invalid_snapshot" >/dev/null 2>&1; then
+    print -u2 "$name hooks unexpectedly installed"
+    exit 1
+  fi
+  [[ "$(shasum -a 256 "$invalid_hooks" | awk '{print $1}')" == "$original_hash" ]]
+  [[ ! -e "$invalid_snapshot" ]]
+  [[ ! -e "$invalid_home/.local/bin/cowlick-hook" \
+    && ! -L "$invalid_home/.local/bin/cowlick-hook" ]]
+  [[ ! -e "$invalid_home/Library/Application Support/Cowlick/bin/cowlick-hook" ]]
+}
+
+assert_invalid_hooks_rejected_without_residue malformed '{'
+assert_invalid_hooks_rejected_without_residue non-object '[]'
+
+invalid_restore_home="$temporary_directory/invalid-restore-home"
+invalid_restore_snapshot="$temporary_directory/invalid-restore-snapshot"
+mkdir -p "$invalid_restore_home/.codex" "$invalid_restore_snapshot"
+COWLICK_HOME="$invalid_restore_home" swift "$script_dir/install_hooks.swift" install \
+  --helper "$helper" >/dev/null
+print -n -- '{' > "$invalid_restore_snapshot/hooks.json"
+if COWLICK_HOME="$invalid_restore_home" swift "$script_dir/install_hooks.swift" restore \
+  --snapshot "$invalid_restore_snapshot" >/dev/null 2>&1; then
+  print -u2 "invalid rollback snapshot unexpectedly restored"
+  exit 1
+fi
+[[ ! -e "$invalid_restore_home/.local/bin/cowlick-hook" \
+  && ! -L "$invalid_restore_home/.local/bin/cowlick-hook" ]]
+[[ ! -e "$invalid_restore_home/Library/Application Support/Cowlick/bin/cowlick-hook" ]]
+if grep -Fq 'cowlick-hook' "$invalid_restore_home/.codex/hooks.json"; then
+  print -u2 "invalid rollback snapshot left Cowlick hook residue"
+  exit 1
+fi
+
 COWLICK_TEST_HOME="$test_home" COWLICK_TEST_HOOKS="$hooks_directory/hooks.json" swift -e '
   import Foundation
 
