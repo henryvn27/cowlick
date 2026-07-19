@@ -349,7 +349,7 @@ final class UsageStoreCancellationTests: XCTestCase {
       usageService: SuspendedUsageService(fetch: fetch),
       forecastService: UnusedForecastService()
     )
-    weak let weakStore = store
+    weak var weakStore = store
 
     let refresh = store?.refreshIfNeeded(force: true)
     await fetch.waitForCalls(1)
