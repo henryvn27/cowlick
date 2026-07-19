@@ -3,6 +3,7 @@ import SwiftUI
 struct SessionListView: View {
   let sessions: [AgentSession]
   let showPromptPreviews: Bool
+  let showResultPreviews: Bool
   let openDiagnostics: () -> Void
 
   var body: some View {
@@ -18,15 +19,25 @@ struct SessionListView: View {
             Text(session.projectName)
               .font(.system(size: 12.5, weight: .medium))
               .foregroundStyle(.white.opacity(0.92))
-            Text(secondaryText(for: session))
-              .font(.system(size: 10.5))
-              .foregroundStyle(.white.opacity(0.55))
-              .lineLimit(1)
+            Text(
+              Self.secondaryText(
+                for: session,
+                showPromptPreviews: showPromptPreviews,
+                showResultPreviews: showResultPreviews)
+            )
+            .font(.system(size: 10.5))
+            .foregroundStyle(.white.opacity(0.55))
+            .lineLimit(1)
           }
           Spacer()
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(session.projectName), \(session.statusLabel)")
+        .accessibilityLabel(
+          Self.accessibilityLabel(
+            for: session,
+            showPromptPreviews: showPromptPreviews,
+            showResultPreviews: showResultPreviews)
+        )
         .accessibilityIdentifier("session-row-\(session.id)")
       }
       if sessions.contains(where: { session in
@@ -58,14 +69,37 @@ struct SessionListView: View {
     }
   }
 
-  private func secondaryText(for session: AgentSession) -> String {
+  static func secondaryText(
+    for session: AgentSession,
+    showPromptPreviews: Bool,
+    showResultPreviews: Bool
+  ) -> String {
     if showPromptPreviews, case .working(let prompt) = session.status, let prompt, !prompt.isEmpty {
       return String(prompt.replacingOccurrences(of: "\n", with: " ").prefix(80))
     }
     switch session.status {
     case .failed(let message): return message.map { String($0.prefix(80)) } ?? "Failed"
-    case .completed: return "Completed"
+    case .completed(let message):
+      guard showResultPreviews else { return "Completed" }
+      return message.map { String($0.prefix(80)) } ?? "Completed"
     default: return session.statusLabel
     }
+  }
+
+  static func accessibilityLabel(
+    for session: AgentSession,
+    showPromptPreviews: Bool,
+    showResultPreviews: Bool
+  ) -> String {
+    let status = session.statusLabel
+    let secondary = secondaryText(
+      for: session,
+      showPromptPreviews: showPromptPreviews,
+      showResultPreviews: showResultPreviews)
+    let parts =
+      secondary == status
+      ? [session.projectName, status]
+      : [session.projectName, status, secondary]
+    return parts.joined(separator: ", ")
   }
 }

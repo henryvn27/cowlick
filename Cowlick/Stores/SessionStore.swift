@@ -188,6 +188,7 @@ final class SessionStore {
         workingDirectory: "/Demo/ActivityPilot",
         toolName: "Bash",
         operationDescription: "Publish the verified branch to the configured GitHub remote",
+        operationSummary: "git push -u origin agent/release-readiness",
         fullOperation: "git push -u origin agent/release-readiness",
         requestedAt: now,
         expiresAt: now.addingTimeInterval(settings.approvalTimeout)
@@ -275,10 +276,11 @@ final class SessionStore {
 
     let fullOperation =
       event.toolInput?.prettyPrinted() ?? event.humanDescription ?? "Approval requested"
-    let description =
+    let reason =
       event.humanDescription
       ?? event.toolInput?.objectValue?["description"]?.stringValue
-      ?? displayOperation(from: event.toolInput)
+      ?? "Approval requested"
+    let operationSummary = displayOperation(from: event.toolInput)
     let request = ApprovalRequest(
       id: event.requestId,
       sessionID: event.sessionId,
@@ -286,7 +288,8 @@ final class SessionStore {
       projectName: projectName,
       workingDirectory: event.cwd,
       toolName: event.toolName ?? "Codex tool",
-      operationDescription: description,
+      operationDescription: reason,
+      operationSummary: operationSummary,
       fullOperation: fullOperation,
       requestedAt: event.timestamp,
       expiresAt: event.timestamp.addingTimeInterval(settings.approvalTimeout)
@@ -435,7 +438,7 @@ final class SessionStore {
   }
 
   private func displayOperation(from input: JSONValue?) -> String {
-    guard let input else { return "Approval requested" }
+    guard let input else { return "" }
     if let command = input.objectValue?["command"]?.stringValue { return command }
     return input.prettyPrinted()
   }

@@ -22,6 +22,8 @@ struct OnboardingView: View {
   @State private var integrationInstallState = IntegrationInstallState.notStarted
   @State private var integrationTrust = CodexHookTrustReport.notChecked
   @State private var capsStatus = "Optional"
+  @State private var integrationTestStatus = "Not tested"
+  @State private var integrationTestInProgress = false
   @State private var testConfirmed = false
 
   private let totalSteps = 7
@@ -95,7 +97,7 @@ struct OnboardingView: View {
       icon: nil,
       title: "Codex status, at the notch.",
       detail:
-        "Cowlick shows work, approvals, completion, and failures around the MacBook notch. Other displays use a compact island."
+        "Cowlick shows work, approvals, and completion around the MacBook notch. Other displays use a compact island."
     )
   }
 
@@ -163,13 +165,18 @@ struct OnboardingView: View {
         icon: "rectangle.topthird.inset.filled",
         title: "Try the island.",
         detail:
-          "Run a local visual event, then confirm it appeared. This does not contact Codex or use private data."
+          "Cowlick will run its installed helper through the authenticated local bridge, then show working and completion without using private data."
       )
       HStack {
-        Button("Test Working") { services.sessionStore.testState(.working) }
-        Button("Test Approval") { services.sessionStore.testState(.approvalRequested) }
-        Button("Test Completed") { services.sessionStore.testState(.completed) }
+        Button(integrationTestInProgress ? "Testing…" : "Test Integration") {
+          Task { await runIntegrationTest() }
+        }
+        .disabled(integrationTestInProgress)
+        Button("Preview Approval") { services.sessionStore.testState(.approvalRequested) }
       }
+      Text(integrationTestStatus)
+        .font(.caption)
+        .foregroundStyle(.secondary)
       Toggle("I can see the island", isOn: $testConfirmed)
         .toggleStyle(.checkbox)
     }
@@ -268,6 +275,23 @@ struct OnboardingView: View {
       let result = await services.capsLockService.testSignal()
       capsStatus = result == .available ? "Native HID signal test passed" : result.summary
       services.settings.capsLockEnabled = result == .available
+    }
+  }
+
+  private func runIntegrationTest() async {
+    integrationTestInProgress = true
+    defer { integrationTestInProgress = false }
+    let selfTest = IntegrationSelfTestService(
+      helperURL: services.hookInstaller.installedHelperURL)
+    do {
+      try await selfTest.ping()
+      try await selfTest.sendDemo(.working)
+      integrationTestStatus = "Authenticated bridge connected. Working state delivered."
+      try await Task.sleep(for: .seconds(1.5))
+      try await selfTest.sendDemo(.completed)
+      integrationTestStatus = "Integration passed. Working and completion were delivered."
+    } catch {
+      integrationTestStatus = error.localizedDescription
     }
   }
 

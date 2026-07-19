@@ -83,6 +83,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
   private func configureUITestingIfNeeded(_ services: AppServices) {
     guard CommandLine.arguments.contains("--ui-testing") else { return }
+    services.settings.showResultPreviews = CommandLine.arguments.contains("--show-result-previews")
     let stateName = CommandLine.arguments.first(where: { $0.hasPrefix("--state=") })
       .map { String($0.dropFirst("--state=".count)) }
     Task { @MainActor in

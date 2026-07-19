@@ -83,7 +83,7 @@ struct SettingsView: View {
             Button("Working") { services.sessionStore.testState(.working) }
             Button("Approval") { services.sessionStore.testState(.approvalRequested) }
             Button("Completed") { services.sessionStore.testState(.completed) }
-            Button("Failed") { services.sessionStore.testState(.failed) }
+            Button("Failed Preview") { services.sessionStore.testState(.failed) }
           }
         }
       }

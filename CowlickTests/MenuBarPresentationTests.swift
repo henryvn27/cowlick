@@ -142,7 +142,8 @@ final class MenuBarPresentationTests: XCTestCase {
       projectName: "Scoutly",
       workingDirectory: "/tmp/Scoutly",
       toolName: "Shell",
-      operationDescription: "Run tests",
+      operationDescription: "Run the project test suite",
+      operationSummary: "swift test",
       fullOperation: "swift test",
       requestedAt: .now,
       expiresAt: .now.addingTimeInterval(60)

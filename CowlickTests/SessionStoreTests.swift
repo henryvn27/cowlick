@@ -63,6 +63,47 @@ final class SessionStoreTests: XCTestCase {
     XCTAssertTrue(store.approvalQueue.isEmpty)
   }
 
+  func testApprovalKeepsHumanReasonSeparateFromOperation() async {
+    let settings = makeTestSettings()
+    settings.approvalTimeout = 10
+    let store = SessionStore(settings: settings)
+    let event = makeBridgeEvent(
+      event: .approvalRequested,
+      toolName: "Bash",
+      toolInput: .object([
+        "command": .string("git push origin main"),
+        "description": .string("Publish the verified branch"),
+      ]))
+
+    let task = Task { await store.receive(event) }
+    let approvalQueued = await waitUntil { store.currentApproval != nil }
+    XCTAssertTrue(approvalQueued)
+    XCTAssertEqual(store.currentApproval?.reasonPreview, "Publish the verified branch")
+    XCTAssertEqual(store.currentApproval?.operationPreview, "git push origin main")
+    XCTAssertTrue(store.currentApproval?.showsDistinctOperation == true)
+    XCTAssertTrue(store.decide(requestID: event.requestId, decision: .deny))
+    _ = await task.value
+  }
+
+  func testApprovalWithoutToolInputDoesNotInventOperation() async {
+    let settings = makeTestSettings()
+    settings.approvalTimeout = 10
+    let store = SessionStore(settings: settings)
+    let event = makeBridgeEvent(
+      event: .approvalRequested,
+      toolName: "Codex tool",
+      description: "Review this permission")
+
+    let task = Task { await store.receive(event) }
+    let approvalQueued = await waitUntil { store.currentApproval != nil }
+    XCTAssertTrue(approvalQueued)
+    XCTAssertEqual(store.currentApproval?.reasonPreview, "Review this permission")
+    XCTAssertEqual(store.currentApproval?.operationPreview, "")
+    XCTAssertFalse(store.currentApproval?.showsDistinctOperation == true)
+    XCTAssertTrue(store.decide(requestID: event.requestId, decision: .deny))
+    _ = await task.value
+  }
+
   func testExpiredApprovalDefersWithoutQueueing() async {
     let settings = makeTestSettings()
     settings.approvalTimeout = 5
@@ -148,6 +189,46 @@ final class SessionStoreTests: XCTestCase {
     XCTAssertNil(store.displaySession)
   }
 
+  func testCompletionResultPreviewIsStoredAndRenderedWhenEnabled() async {
+    let settings = makeTestSettings()
+    settings.showResultPreviews = true
+    let store = SessionStore(settings: settings)
+    _ = await store.receive(
+      makeBridgeEvent(event: .completed, result: "Release verification passed"))
+
+    guard let session = store.sessions["session-1"] else {
+      return XCTFail("Expected completed session")
+    }
+    XCTAssertEqual(
+      SessionListView.secondaryText(
+        for: session,
+        showPromptPreviews: false,
+        showResultPreviews: true),
+      "Release verification passed"
+    )
+    XCTAssertEqual(
+      SessionListView.accessibilityLabel(
+        for: session,
+        showPromptPreviews: false,
+        showResultPreviews: true),
+      "Scoutly, Completed, Release verification passed"
+    )
+    XCTAssertEqual(
+      SessionListView.secondaryText(
+        for: session,
+        showPromptPreviews: false,
+        showResultPreviews: false),
+      "Completed"
+    )
+    XCTAssertEqual(
+      SessionListView.accessibilityLabel(
+        for: session,
+        showPromptPreviews: false,
+        showResultPreviews: false),
+      "Scoutly, Completed"
+    )
+  }
+
   func testCompletionAutomaticallyExpiresObservedState() async throws {
     let settings = makeTestSettings()
     settings.completionVisibility = .twoSeconds
@@ -191,7 +272,8 @@ final class SessionStoreTests: XCTestCase {
     ApprovalRequest(
       id: UUID(), sessionID: "s", turnID: "t", projectName: "Scoutly",
       workingDirectory: "/tmp/Scoutly", toolName: "Bash",
-      operationDescription: "Run tests", fullOperation: "swift test",
+      operationDescription: "Run the project test suite", operationSummary: "swift test",
+      fullOperation: "swift test",
       requestedAt: Date(), expiresAt: Date().addingTimeInterval(60)
     )
   }

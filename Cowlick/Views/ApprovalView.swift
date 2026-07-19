@@ -21,10 +21,20 @@ struct ApprovalView: View {
           .foregroundStyle(.white.opacity(0.52))
       }
 
-      Text(request.operationPreview)
-        .font(.system(size: 12, weight: .regular, design: .monospaced))
+      Text(request.reasonPreview)
+        .font(.system(size: 12, weight: .regular))
         .foregroundStyle(.white.opacity(0.76))
         .lineLimit(2)
+        .accessibilityLabel("Reason: \(request.reasonPreview)")
+
+      if request.showsDistinctOperation {
+        Text(request.operationPreview)
+          .font(.system(size: 11.5, weight: .regular, design: .monospaced))
+          .foregroundStyle(.white.opacity(0.58))
+          .lineLimit(2)
+          .textSelection(.enabled)
+          .accessibilityLabel("Operation: \(request.operationPreview)")
+      }
 
       HStack(spacing: 8) {
         Button("Deny", role: .destructive, action: deny)
