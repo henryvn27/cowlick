@@ -171,7 +171,9 @@ struct OnboardingView: View {
         Button(integrationTestInProgress ? "Testing…" : "Test Integration") {
           Task { await runIntegrationTest() }
         }
-        .disabled(integrationTestInProgress || !services.sessionStore.canPreviewTestStates)
+        .disabled(
+          integrationTestInProgress || services.sessionStore.integrationSelfTestInProgress
+            || !services.sessionStore.canPreviewTestStates)
         Button("Preview Approval") { services.sessionStore.testState(.approvalRequested) }
           .disabled(!services.sessionStore.canPreviewTestStates)
       }
@@ -281,22 +283,32 @@ struct OnboardingView: View {
 
   private func runIntegrationTest() async {
     guard !integrationTestInProgress else { return }
-    guard services.sessionStore.canPreviewTestStates else {
-      integrationTestStatus = "Resolve current work or approval before testing the integration."
+    guard let lease = services.sessionStore.beginIntegrationSelfTest(owner: .onboarding) else {
+      integrationTestStatus =
+        services.sessionStore.integrationSelfTestInProgress
+        ? "Another integration self-test is already running."
+        : "Resolve current work or approval before testing the integration."
       return
     }
     integrationTestInProgress = true
-    defer { integrationTestInProgress = false }
-    let selfTest = IntegrationSelfTestService(
-      helperURL: services.hookInstaller.installedHelperURL)
+    defer {
+      integrationTestInProgress = false
+      services.sessionStore.finishIntegrationSelfTest(lease)
+    }
     do {
+      let helperURL = try services.hookInstaller.installedHelperURLForExplicitSelfTest()
+      let selfTest = IntegrationSelfTestService(helperURL: helperURL)
       try await selfTest.ping()
+      guard services.sessionStore.isIntegrationSelfTestActive(lease) else {
+        integrationTestStatus = "Integration self-test was cancelled."
+        return
+      }
       guard services.sessionStore.canPreviewTestStates else {
         integrationTestStatus = "Live activity started, so the integration preview was cancelled."
         return
       }
       let sessionID = "cowlick-self-test-\(UUID().uuidString)"
-      guard services.sessionStore.beginIntegrationDemoSession(sessionID) else {
+      guard services.sessionStore.beginIntegrationDemoSession(sessionID, lease: lease) else {
         integrationTestStatus = "Live activity started, so the integration preview was cancelled."
         return
       }
@@ -307,18 +319,22 @@ struct OnboardingView: View {
       }
       try await selfTest.sendDemo(.working, sessionID: sessionID)
       guard await waitForIntegrationDemoEvent(.working, sessionID: sessionID) else {
-        integrationTestStatus = integrationPreviewFailureStatus(sessionID: sessionID)
+        integrationTestStatus = integrationPreviewFailureStatus(sessionID: sessionID, lease: lease)
         return
       }
       integrationTestStatus = "Authenticated bridge connected. Working state delivered."
       try await Task.sleep(for: .seconds(1.5))
+      guard services.sessionStore.isIntegrationSelfTestActive(lease) else {
+        integrationTestStatus = "Integration self-test was cancelled."
+        return
+      }
       guard services.sessionStore.isIntegrationDemoSessionActive(sessionID) else {
         integrationTestStatus = "Live activity started, so the integration preview was cancelled."
         return
       }
       try await selfTest.sendDemo(.completed, sessionID: sessionID)
       guard await waitForIntegrationDemoEvent(.completed, sessionID: sessionID) else {
-        integrationTestStatus = integrationPreviewFailureStatus(sessionID: sessionID)
+        integrationTestStatus = integrationPreviewFailureStatus(sessionID: sessionID, lease: lease)
         return
       }
       keepPresentedState = true
@@ -347,8 +363,14 @@ struct OnboardingView: View {
     return services.sessionStore.hasObservedIntegrationDemoEvent(event, sessionID: sessionID)
   }
 
-  private func integrationPreviewFailureStatus(sessionID: String) -> String {
-    services.sessionStore.isIntegrationDemoSessionActive(sessionID)
+  private func integrationPreviewFailureStatus(
+    sessionID: String,
+    lease: IntegrationSelfTestLease
+  ) -> String {
+    guard services.sessionStore.isIntegrationSelfTestActive(lease) else {
+      return "Integration self-test was cancelled."
+    }
+    return services.sessionStore.isIntegrationDemoSessionActive(sessionID)
       ? "Integration preview delivery timed out."
       : "Live activity started, so the integration preview was cancelled."
   }

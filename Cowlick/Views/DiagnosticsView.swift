@@ -1,25 +1,11 @@
 import AppKit
 import SwiftUI
 
-struct SelfTestRunState {
-  private(set) var isRunning = false
-
-  mutating func begin() -> Bool {
-    guard !isRunning else { return false }
-    isRunning = true
-    return true
-  }
-
-  mutating func finish() {
-    isRunning = false
-  }
-}
-
 struct DiagnosticsView: View {
   let services: AppServices
   @State private var report = "Loading diagnostics…"
   @State private var selfTestStatus = ""
-  @State private var selfTestRunState = SelfTestRunState()
+  @State private var selfTestInProgress = false
 
   var body: some View {
     VStack(alignment: .leading, spacing: 14) {
@@ -55,10 +41,10 @@ struct DiagnosticsView: View {
         Button("Export…") { exportReport() }
         Button("Reveal Logs") { NSWorkspace.shared.open(AppSupportPaths.logDirectory) }
         Spacer()
-        Button(selfTestRunState.isRunning ? "Testing…" : "Run Self-Test") {
+        Button(selfTestInProgress ? "Testing…" : "Run Self-Test") {
           Task { await runSelfTest() }
         }
-        .disabled(selfTestRunState.isRunning)
+        .disabled(selfTestInProgress || services.sessionStore.integrationSelfTestInProgress)
       }
     }
     .padding(20)
@@ -74,12 +60,28 @@ struct DiagnosticsView: View {
   }
 
   private func runSelfTest() async {
-    guard selfTestRunState.begin() else { return }
-    defer { selfTestRunState.finish() }
-    let selfTest = IntegrationSelfTestService(
-      helperURL: services.hookInstaller.installedHelperURL)
+    guard
+      let lease = services.sessionStore.beginIntegrationSelfTest(owner: .diagnostics)
+    else {
+      selfTestStatus =
+        services.sessionStore.integrationSelfTestInProgress
+        ? "Another integration self-test is already running."
+        : "Live activity must finish before running the integration self-test."
+      return
+    }
+    selfTestInProgress = true
+    defer {
+      selfTestInProgress = false
+      services.sessionStore.finishIntegrationSelfTest(lease)
+    }
     do {
+      let helperURL = try services.hookInstaller.currentInstalledHelperURL()
+      let selfTest = IntegrationSelfTestService(helperURL: helperURL)
       try await selfTest.ping()
+      guard services.sessionStore.isIntegrationSelfTestActive(lease) else {
+        selfTestStatus = "Integration self-test was cancelled."
+        return
+      }
       selfTestStatus = "Self-test passed: the installed helper authenticated to Cowlick."
     } catch {
       selfTestStatus = "Self-test failed: \(error.localizedDescription)"

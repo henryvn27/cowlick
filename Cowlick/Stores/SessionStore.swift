@@ -1,6 +1,16 @@
 import Foundation
 import Observation
 
+enum IntegrationSelfTestOwner: Equatable {
+  case diagnostics
+  case onboarding
+}
+
+struct IntegrationSelfTestLease: Equatable {
+  fileprivate let id = UUID()
+  let owner: IntegrationSelfTestOwner
+}
+
 @MainActor
 @Observable
 final class SessionStore {
@@ -11,6 +21,8 @@ final class SessionStore {
   private var localDemoSessionIDs: Set<String> = []
   private var integrationDemoSessionIDs: Set<String> = []
   private var ignoredIntegrationDemoSessionIDs: Set<String> = []
+  private var integrationSelfTestLease: IntegrationSelfTestLease?
+  private var integrationSelfTestCancelled = false
   var isExpanded = false
   var presentationDidChange: (() -> Void)?
 
@@ -32,6 +44,8 @@ final class SessionStore {
   }
 
   var currentApproval: ApprovalRequest? { approvalQueue.first }
+
+  var integrationSelfTestInProgress: Bool { integrationSelfTestLease != nil }
 
   var activeSessionCount: Int {
     sessions.values.filter(\.isActive).count
@@ -185,6 +199,7 @@ final class SessionStore {
     localDemoSessionIDs.removeAll()
     ignoredIntegrationDemoSessionIDs.formUnion(integrationDemoSessionIDs)
     integrationDemoSessionIDs.removeAll()
+    integrationSelfTestCancelled = integrationSelfTestLease != nil
     sessions.removeAll()
     isExpanded = false
     eventLogger.reset()
@@ -294,8 +309,30 @@ final class SessionStore {
   }
 
   @discardableResult
-  func beginIntegrationDemoSession(_ sessionID: String) -> Bool {
-    guard integrationDemoSessionIDs.isEmpty, canPreviewTestStates else { return false }
+  func beginIntegrationSelfTest(owner: IntegrationSelfTestOwner) -> IntegrationSelfTestLease? {
+    guard integrationSelfTestLease == nil, canPreviewTestStates else { return nil }
+    let lease = IntegrationSelfTestLease(owner: owner)
+    integrationSelfTestLease = lease
+    integrationSelfTestCancelled = false
+    return lease
+  }
+
+  func isIntegrationSelfTestActive(_ lease: IntegrationSelfTestLease) -> Bool {
+    integrationSelfTestLease == lease && !integrationSelfTestCancelled
+  }
+
+  func finishIntegrationSelfTest(_ lease: IntegrationSelfTestLease) {
+    guard integrationSelfTestLease == lease else { return }
+    integrationSelfTestLease = nil
+    integrationSelfTestCancelled = false
+  }
+
+  @discardableResult
+  func beginIntegrationDemoSession(_ sessionID: String, lease: IntegrationSelfTestLease) -> Bool {
+    guard isIntegrationSelfTestActive(lease),
+      integrationDemoSessionIDs.isEmpty,
+      canPreviewTestStates
+    else { return false }
     clearLocalDemoState()
     ignoredIntegrationDemoSessionIDs.remove(sessionID)
     integrationDemoSessionIDs.insert(sessionID)

@@ -175,6 +175,7 @@ grep -q "sha256 \"$expected_sha\"" "$cask"
 grep -q 'app "Cowlick.app"' "$cask"
 grep -q 'auto_updates true' "$cask"
 grep -Fq 'Homebrew cannot declaratively remove Keychain items' "$cask"
+grep -Fq 'Before uninstalling, choose Remove Integration in Cowlick Settings.' "$cask"
 if grep -Fq '"~/Library/Application Support/Cowlick",' "$cask"; then
   print -u2 -- "Homebrew zap would orphan provider credentials by deleting their metadata"
   exit 1

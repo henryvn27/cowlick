@@ -68,7 +68,7 @@ struct SettingsView: View {
           }
           HStack {
             Button("Install or Repair") { installHooks() }
-            Button("Remove Hooks") { removeHooks() }
+            Button("Remove Integration") { removeIntegration() }
             Button("Reveal Configuration") { revealHooks() }
           }
           if !integrationMessage.isEmpty {
@@ -248,13 +248,13 @@ struct SettingsView: View {
     }
   }
 
-  private func removeHooks() {
+  private func removeIntegration() {
     integrationMessage = "Removing…"
     Task {
       let result = await Task.detached { () -> HookTaskResult in
         let installer = HookInstaller()
         do {
-          try installer.removeHooks()
+          try installer.removeIntegration()
           return HookTaskResult(status: installer.status(), errorMessage: nil)
         } catch {
           return HookTaskResult(
@@ -262,7 +262,7 @@ struct SettingsView: View {
         }
       }.value
       hookStatus = result.status
-      integrationMessage = result.errorMessage ?? "Cowlick hook entries removed."
+      integrationMessage = result.errorMessage ?? "Cowlick hooks and installed helper removed."
     }
   }
 

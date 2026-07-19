@@ -156,7 +156,13 @@ final class SessionStoreTests: XCTestCase {
       ("Completed", { $0.testState(.completed) }),
       ("Failed", { $0.testState(.failed) }),
       ("Multiple Sessions", { $0.testMultipleSessions() }),
-      ("Test Integration", { _ = $0.beginIntegrationDemoSession("blocked-integration-demo") }),
+      (
+        "Test Integration",
+        {
+          guard let lease = $0.beginIntegrationSelfTest(owner: .onboarding) else { return }
+          _ = $0.beginIntegrationDemoSession("blocked-integration-demo", lease: lease)
+        }
+      ),
     ]
 
     for (name, preview) in previews {
@@ -197,7 +203,13 @@ final class SessionStoreTests: XCTestCase {
       ("Completed", { $0.testState(.completed) }),
       ("Failed", { $0.testState(.failed) }),
       ("Multiple Sessions", { $0.testMultipleSessions() }),
-      ("Test Integration", { _ = $0.beginIntegrationDemoSession("blocked-integration-demo") }),
+      (
+        "Test Integration",
+        {
+          guard let lease = $0.beginIntegrationSelfTest(owner: .onboarding) else { return }
+          _ = $0.beginIntegrationDemoSession("blocked-integration-demo", lease: lease)
+        }
+      ),
     ]
 
     for (name, preview) in previews {
@@ -249,7 +261,10 @@ final class SessionStoreTests: XCTestCase {
     settings.approvalTimeout = 10
     let store = SessionStore(settings: settings)
     let demoSessionID = "cowlick-self-test-\(UUID().uuidString)"
-    XCTAssertTrue(store.beginIntegrationDemoSession(demoSessionID))
+    guard let lease = store.beginIntegrationSelfTest(owner: .onboarding) else {
+      return XCTFail("Expected onboarding self-test lease")
+    }
+    XCTAssertTrue(store.beginIntegrationDemoSession(demoSessionID, lease: lease))
     _ = await store.receive(makeBridgeEvent(event: .working, sessionID: demoSessionID))
     XCTAssertTrue(store.isIntegrationDemoSessionActive(demoSessionID))
 
@@ -284,25 +299,34 @@ final class SessionStoreTests: XCTestCase {
   func testResetCancelsIntegrationDemoAndIgnoresLateCompletion() async {
     let store = SessionStore(settings: makeTestSettings())
     let demoSessionID = "cowlick-self-test-\(UUID().uuidString)"
-    XCTAssertTrue(store.beginIntegrationDemoSession(demoSessionID))
+    guard let lease = store.beginIntegrationSelfTest(owner: .onboarding) else {
+      return XCTFail("Expected onboarding self-test lease")
+    }
+    XCTAssertTrue(store.beginIntegrationDemoSession(demoSessionID, lease: lease))
     _ = await store.receive(makeBridgeEvent(event: .working, sessionID: demoSessionID))
     XCTAssertTrue(store.hasObservedIntegrationDemoEvent(.working, sessionID: demoSessionID))
 
     store.reset()
     XCTAssertFalse(store.isIntegrationDemoSessionActive(demoSessionID))
+    XCTAssertFalse(store.isIntegrationSelfTestActive(lease))
+    XCTAssertTrue(store.integrationSelfTestInProgress)
     XCTAssertTrue(store.sessions.isEmpty)
 
     _ = await store.receive(makeBridgeEvent(event: .completed, sessionID: demoSessionID))
 
     XCTAssertNil(store.sessions[demoSessionID])
     XCTAssertTrue(store.approvalQueue.isEmpty)
+    store.finishIntegrationSelfTest(lease)
   }
 
   func testOverlappingIntegrationDemoStartsAreRejected() {
     let store = SessionStore(settings: makeTestSettings())
+    guard let lease = store.beginIntegrationSelfTest(owner: .onboarding) else {
+      return XCTFail("Expected onboarding self-test lease")
+    }
 
-    XCTAssertTrue(store.beginIntegrationDemoSession("first-integration-demo"))
-    XCTAssertFalse(store.beginIntegrationDemoSession("second-integration-demo"))
+    XCTAssertTrue(store.beginIntegrationDemoSession("first-integration-demo", lease: lease))
+    XCTAssertFalse(store.beginIntegrationDemoSession("second-integration-demo", lease: lease))
     XCTAssertTrue(store.isIntegrationDemoSessionActive("first-integration-demo"))
     XCTAssertFalse(store.isIntegrationDemoSessionActive("second-integration-demo"))
   }
@@ -310,7 +334,10 @@ final class SessionStoreTests: XCTestCase {
   func testIntegrationDemoOwnershipEndsOnlyAfterObservedCompletion() async {
     let store = SessionStore(settings: makeTestSettings())
     let demoSessionID = "cowlick-self-test-\(UUID().uuidString)"
-    XCTAssertTrue(store.beginIntegrationDemoSession(demoSessionID))
+    guard let lease = store.beginIntegrationSelfTest(owner: .onboarding) else {
+      return XCTFail("Expected onboarding self-test lease")
+    }
+    XCTAssertTrue(store.beginIntegrationDemoSession(demoSessionID, lease: lease))
 
     _ = await store.receive(makeBridgeEvent(event: .working, sessionID: demoSessionID))
     XCTAssertTrue(store.hasObservedIntegrationDemoEvent(.working, sessionID: demoSessionID))
@@ -327,7 +354,10 @@ final class SessionStoreTests: XCTestCase {
   func testKeepFinishBeforeCompletionRetainsOwnershipThroughLateDelivery() async {
     let store = SessionStore(settings: makeTestSettings())
     let demoSessionID = "cowlick-self-test-\(UUID().uuidString)"
-    XCTAssertTrue(store.beginIntegrationDemoSession(demoSessionID))
+    guard let lease = store.beginIntegrationSelfTest(owner: .onboarding) else {
+      return XCTFail("Expected onboarding self-test lease")
+    }
+    XCTAssertTrue(store.beginIntegrationDemoSession(demoSessionID, lease: lease))
 
     store.finishIntegrationDemoSession(demoSessionID, discardPresentedState: false)
     XCTAssertTrue(store.isIntegrationDemoSessionActive(demoSessionID))
@@ -337,6 +367,49 @@ final class SessionStoreTests: XCTestCase {
     XCTAssertTrue(store.hasObservedIntegrationDemoEvent(.completed, sessionID: demoSessionID))
     XCTAssertFalse(store.isIntegrationDemoSessionActive(demoSessionID))
     XCTAssertNotNil(store.sessions[demoSessionID])
+  }
+
+  func testDiagnosticsSelfTestCannotOverlapOnboardingDemo() async {
+    let store = SessionStore(settings: makeTestSettings())
+    guard let onboardingLease = store.beginIntegrationSelfTest(owner: .onboarding) else {
+      return XCTFail("Expected onboarding self-test lease")
+    }
+    let demoSessionID = "cowlick-self-test-\(UUID().uuidString)"
+    XCTAssertTrue(store.beginIntegrationDemoSession(demoSessionID, lease: onboardingLease))
+    _ = await store.receive(makeBridgeEvent(event: .working, sessionID: demoSessionID))
+
+    XCTAssertNil(store.beginIntegrationSelfTest(owner: .diagnostics))
+    XCTAssertTrue(store.isIntegrationDemoSessionActive(demoSessionID))
+    XCTAssertTrue(store.hasObservedIntegrationDemoEvent(.working, sessionID: demoSessionID))
+
+    store.finishIntegrationDemoSession(demoSessionID, discardPresentedState: true)
+    store.finishIntegrationSelfTest(onboardingLease)
+    XCTAssertNotNil(store.beginIntegrationSelfTest(owner: .diagnostics))
+  }
+
+  func testResetKeepsCancelledLeaseUntilDelayedOwnerFinishesAndIgnoresLateEvent() async {
+    let store = SessionStore(settings: makeTestSettings())
+    guard let onboardingLease = store.beginIntegrationSelfTest(owner: .onboarding) else {
+      return XCTFail("Expected onboarding self-test lease")
+    }
+    let demoSessionID = "delayed-integration-demo"
+    XCTAssertTrue(store.beginIntegrationDemoSession(demoSessionID, lease: onboardingLease))
+    _ = await store.receive(makeBridgeEvent(event: .working, sessionID: demoSessionID))
+
+    store.reset()
+    XCTAssertFalse(store.isIntegrationSelfTestActive(onboardingLease))
+    XCTAssertTrue(store.integrationSelfTestInProgress)
+    XCTAssertNil(store.beginIntegrationSelfTest(owner: .diagnostics))
+
+    _ = await store.receive(makeBridgeEvent(event: .completed, sessionID: demoSessionID))
+    XCTAssertNil(store.sessions[demoSessionID])
+
+    store.finishIntegrationSelfTest(onboardingLease)
+    guard let diagnosticsLease = store.beginIntegrationSelfTest(owner: .diagnostics) else {
+      return XCTFail("Expected diagnostics lease after delayed owner finished")
+    }
+    store.finishIntegrationSelfTest(diagnosticsLease)
+    XCTAssertFalse(store.integrationSelfTestInProgress)
   }
 
   func testPingClearsPreviewAndNotifiesPresentation() async {

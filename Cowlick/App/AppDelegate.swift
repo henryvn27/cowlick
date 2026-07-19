@@ -27,6 +27,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     WindowCoordinator.shared.configure(services: services)
     configureUITestingIfNeeded(services)
     guard !isUITesting else { return }
+    do {
+      try services.hookInstaller.refreshInstalledHelperIfNeeded()
+    } catch {
+      services.eventLogger.error("Helper refresh failed: \(error.localizedDescription)")
+    }
 
     let timeoutDefaults = UserDefaults.standard
     let server = LocalSocketServer(
