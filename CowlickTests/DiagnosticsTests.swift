@@ -261,6 +261,34 @@ final class DiagnosticsTests: XCTestCase {
     )
   }
 
+  func testExactCredentialValueWrappersRequireBoundaryAfterClose() {
+    for (input, expected) in [
+      (#"token="alpha"beta visible"#, "token=<redacted>"),
+      (#"token="alpha".beta visible"#, "token=<redacted>"),
+      ("api.key=“alpha”beta visible", "api.key=<redacted>"),
+      ("api.key=“alpha”-beta visible", "api.key=<redacted>"),
+    ] {
+      XCTAssertEqual(EventLogger.sanitizeError(input), expected)
+    }
+
+    XCTAssertEqual(
+      EventLogger.sanitizeError(#"token="alpha" visible"#),
+      "token=<redacted> visible"
+    )
+    XCTAssertEqual(
+      EventLogger.sanitizeError(#"token="alpha", visible"#),
+      "token=<redacted>, visible"
+    )
+    XCTAssertEqual(
+      EventLogger.sanitizeError("api.key=“alpha” visible"),
+      "api.key=<redacted> visible"
+    )
+    XCTAssertEqual(
+      EventLogger.sanitizeError("api.key=“alpha”; visible"),
+      "api.key=<redacted>; visible"
+    )
+  }
+
   func testWrongOrUnsupportedUnicodeValueQuotesFailClosed() {
     for (input, expected) in [
       ("token=”alpha beta” visible", "token=<redacted>"),
@@ -375,6 +403,42 @@ final class DiagnosticsTests: XCTestCase {
     ] {
       XCTAssertEqual(EventLogger.sanitizeError(input), "authorization=<redacted>")
     }
+  }
+
+  func testProtectedMidTokenQuotesFailClosedButBoundaryWrappersClose() {
+    for input in [
+      #"Bearer prefix"safe";secret.tail"#,
+      "Bearer prefix“safe”;secret.tail",
+      #"Bearer prefix"safe;secret.tail"#,
+      "Bearer prefix“safe;secret.tail",
+    ] {
+      XCTAssertEqual(EventLogger.sanitizeError(input), "bearer=<redacted>")
+    }
+    for input in [
+      #"Authorization: Bearer prefix"safe",secret.tail"#,
+      "Authorization: Bearer prefix“safe”,secret.tail",
+      #"Authorization: Bearer prefix"safe,secret.tail"#,
+      "Authorization: Bearer prefix“safe,secret.tail",
+    ] {
+      XCTAssertEqual(EventLogger.sanitizeError(input), "authorization=<redacted>")
+    }
+
+    XCTAssertEqual(
+      EventLogger.sanitizeError(#"Bearer "safe;value"; visible"#),
+      "bearer=<redacted>; visible"
+    )
+    XCTAssertEqual(
+      EventLogger.sanitizeError("Bearer “safe;value”; visible"),
+      "bearer=<redacted>; visible"
+    )
+    XCTAssertEqual(
+      EventLogger.sanitizeError(#"Authorization: Bearer prefix "safe,value", visible"#),
+      "authorization=<redacted>, visible"
+    )
+    XCTAssertEqual(
+      EventLogger.sanitizeError("Authorization: Bearer prefix “safe,value”, visible"),
+      "authorization=<redacted>, visible"
+    )
   }
 
   func testRedactsExactStandardizedCustomHomeBeforeUsersFallback() {

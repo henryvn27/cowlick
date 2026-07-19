@@ -314,7 +314,11 @@ final class EventLogger {
       let quote = scalars[start]
       var end = start + 1
       while end < scalars.count {
-        if scalars[end] == quote { return end + 1 }
+        if scalars[end] == quote {
+          let afterQuote = end + 1
+          return afterQuote == scalars.count || isValueTerminator(scalars[afterQuote])
+            ? afterQuote : scalars.count
+        }
         end += scalars[end].value == 0x5C && end + 1 < scalars.count ? 2 : 1
       }
       return scalars.count
@@ -322,7 +326,11 @@ final class EventLogger {
     if let closingQuote = unicodeCredentialValueClosingQuote(for: scalars[start]) {
       var end = start + 1
       while end < scalars.count {
-        if scalars[end] == closingQuote { return end + 1 }
+        if scalars[end] == closingQuote {
+          let afterQuote = end + 1
+          return afterQuote == scalars.count || isValueTerminator(scalars[afterQuote])
+            ? afterQuote : scalars.count
+        }
         end += 1
       }
       return scalars.count
@@ -344,6 +352,7 @@ final class EventLogger {
     var end = start
     var quote: UnicodeScalar?
     var quoteAllowsEscapes = false
+    var isAtValueBoundary = true
     while end < scalars.count {
       let scalar = scalars[end]
       if let activeQuote = quote {
@@ -359,14 +368,18 @@ final class EventLogger {
         continue
       }
       if isQuote(scalar) {
+        guard isAtValueBoundary else { return scalars.count }
         quote = scalar
         quoteAllowsEscapes = true
+        isAtValueBoundary = false
         end += 1
         continue
       }
       if let closingQuote = unicodeCredentialValueClosingQuote(for: scalar) {
+        guard isAtValueBoundary else { return scalars.count }
         quote = closingQuote
         quoteAllowsEscapes = false
+        isAtValueBoundary = false
         end += 1
         continue
       }
@@ -379,6 +392,7 @@ final class EventLogger {
             || isUnicodeQuoteMarker(scalars[nextField])
         {
           end = nextField
+          isAtValueBoundary = true
           continue
         }
         if let field = isSensitiveField(in: scalars, from: nextField) {
@@ -391,8 +405,10 @@ final class EventLogger {
           return boundary
         }
         end = nextField
+        isAtValueBoundary = true
         continue
       }
+      isAtValueBoundary = false
       end += 1
     }
     return end > start ? end : nil
