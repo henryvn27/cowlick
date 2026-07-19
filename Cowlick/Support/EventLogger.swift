@@ -383,36 +383,26 @@ final class EventLogger {
       identifierEnd += 1
     }
 
-    if let quote, identifierEnd < scalars.count, scalars[identifierEnd] == quote {
-      let delimiter = skipWhitespace(in: scalars, from: identifierEnd + 1)
-      let normalized = normalizedIdentifier(scalars[identifierStart..<identifierEnd])
-      guard delimiter < scalars.count, isCredentialDelimiter(scalars[delimiter]),
-        isSensitiveIdentifier(normalized)
-      else { return nil }
-      return SensitiveField(
-        replacementStart: start,
-        labelStart: identifierStart,
-        labelEnd: identifierEnd,
-        delimiter: delimiter,
-        normalizedLabel: normalized
-      )
-    }
-
     var words = [identifierStart..<identifierEnd]
     var afterWord = identifierEnd
     while true {
       let next = skipWhitespace(in: scalars, from: afterWord)
-      if next < scalars.count, isCredentialDelimiter(scalars[next]) {
+      let delimiter =
+        if let quote, next < scalars.count, scalars[next] == quote {
+          skipWhitespace(in: scalars, from: next + 1)
+        } else {
+          next
+        }
+      if delimiter < scalars.count, isCredentialDelimiter(scalars[delimiter]) {
         var normalized = ""
         for word in words.reversed() {
           normalized = normalizedIdentifier(scalars[word]) + normalized
           guard isSensitiveIdentifier(normalized) else { continue }
           return SensitiveField(
-            replacementStart: quote != nil && word.lowerBound == identifierStart
-              ? start : word.lowerBound,
-            labelStart: word.lowerBound,
+            replacementStart: quote == nil ? word.lowerBound : start,
+            labelStart: quote == nil ? word.lowerBound : identifierStart,
             labelEnd: words.last!.upperBound,
-            delimiter: next,
+            delimiter: delimiter,
             normalizedLabel: normalized
           )
         }

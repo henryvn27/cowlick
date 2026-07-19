@@ -111,6 +111,11 @@ final class DiagnosticsTests: XCTestCase {
     XCTAssertTrue(output.contains("client.secret=<redacted>"))
     XCTAssertTrue(output.contains("API key=<redacted>"))
     XCTAssertTrue(output.contains("AWS secret access key=<redacted>"))
+    XCTAssertEqual(EventLogger.sanitizeError(#""API key":"secret""#), "API key=<redacted>")
+    XCTAssertEqual(
+      EventLogger.sanitizeError(#""AWS secret access key":"secret""#),
+      "AWS secret access key=<redacted>"
+    )
   }
 
   func testLeavesBareKeyProseAndNonsensitiveDottedLabelsUntouched() {
@@ -118,6 +123,14 @@ final class DiagnosticsTests: XCTestCase {
       #"key: visible release.version=1.2.3 "display.name":"public.value" API key names only"#
 
     XCTAssertEqual(EventLogger.sanitizeError(input), input)
+
+    for prose in [
+      #""API key names only"#,
+      #""AWS secret access key" names only"#,
+      #""API key" "public.value""#,
+    ] {
+      XCTAssertEqual(EventLogger.sanitizeError(prose), prose)
+    }
   }
 
   func testQuotedCredentialValuesHonorEscapesAndUnmatchedQuotedKeysFallBack() {
