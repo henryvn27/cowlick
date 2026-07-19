@@ -1,6 +1,16 @@
 import Foundation
 import Observation
 
+enum IntegrationSelfTestOwner: Equatable {
+  case diagnostics
+  case onboarding
+}
+
+struct IntegrationSelfTestLease: Equatable {
+  fileprivate let id = UUID()
+  let owner: IntegrationSelfTestOwner
+}
+
 @MainActor
 @Observable
 final class SessionStore {
@@ -8,6 +18,11 @@ final class SessionStore {
   private(set) var approvalQueue: [ApprovalRequest] = []
   private var seenApprovalRequestIDs: [UUID: Date] = [:]
   private var localDemoApprovalIDs: Set<UUID> = []
+  private var localDemoSessionIDs: Set<String> = []
+  private var integrationDemoSessionIDs: Set<String> = []
+  private var ignoredIntegrationDemoSessionIDs: Set<String> = []
+  private var integrationSelfTestLease: IntegrationSelfTestLease?
+  private var integrationSelfTestCancelled = false
   var isExpanded = false
   var presentationDidChange: (() -> Void)?
 
@@ -30,8 +45,21 @@ final class SessionStore {
 
   var currentApproval: ApprovalRequest? { approvalQueue.first }
 
+  var integrationSelfTestInProgress: Bool { integrationSelfTestLease != nil }
+
   var activeSessionCount: Int {
     sessions.values.filter(\.isActive).count
+  }
+
+  var canPreviewTestStates: Bool {
+    guard approvalQueue.allSatisfy({ localDemoApprovalIDs.contains($0.id) }) else { return false }
+    return sessions.values.allSatisfy { session in
+      guard !localDemoSessionIDs.contains(session.id) else { return true }
+      return switch session.status {
+      case .working, .awaitingApproval, .failed: false
+      case .idle, .completed: true
+      }
+    }
   }
 
   var displaySession: AgentSession? {
@@ -72,10 +100,15 @@ final class SessionStore {
     let projectName = await Task.detached(priority: .utility) {
       ProjectNameResolver.resolve(workingDirectory: event.cwd)
     }.value
+    if ignoredIntegrationDemoSessionIDs.contains(event.sessionId) { return nil }
+    let isIntegrationDemo = integrationDemoSessionIDs.contains(event.sessionId)
+    if isIntegrationDemo, !localDemoSessionIDs.contains(event.sessionId) { return nil }
+    clearLocalDemoState(preservingSessionID: isIntegrationDemo ? event.sessionId : nil)
 
     switch event.event {
     case .ping:
       eventLogger.record(event: .ping, project: projectName)
+      notifyPresentationChanged()
       return nil
     case .sessionStart:
       upsertSession(
@@ -102,6 +135,7 @@ final class SessionStore {
       return await handleApproval(event, projectName: projectName)
     case .completed:
       complete(event, projectName: projectName)
+      if isIntegrationDemo { integrationDemoSessionIDs.remove(event.sessionId) }
     case .failed:
       fail(event, projectName: projectName)
     }
@@ -162,6 +196,10 @@ final class SessionStore {
     approvalQueue.removeAll()
     seenApprovalRequestIDs.removeAll()
     localDemoApprovalIDs.removeAll()
+    localDemoSessionIDs.removeAll()
+    ignoredIntegrationDemoSessionIDs.formUnion(integrationDemoSessionIDs)
+    integrationDemoSessionIDs.removeAll()
+    integrationSelfTestCancelled = integrationSelfTestLease != nil
     sessions.removeAll()
     isExpanded = false
     eventLogger.reset()
@@ -171,10 +209,13 @@ final class SessionStore {
   }
 
   func testState(_ state: BridgeEventName) {
+    guard canPreviewTestStates else { return }
+    clearLocalDemoState()
     let id = "demo-visual-state"
     let now = Date()
     switch state {
     case .working:
+      localDemoSessionIDs.insert(id)
       upsertSession(
         id: id, turnID: "demo-turn", projectName: "Scoutly", cwd: "/Demo/Scoutly", model: "gpt-5.6",
         status: .working(prompt: "Refine the match scouting flow"), timestamp: now)
@@ -188,18 +229,21 @@ final class SessionStore {
         workingDirectory: "/Demo/ActivityPilot",
         toolName: "Bash",
         operationDescription: "Publish the verified branch to the configured GitHub remote",
+        operationSummary: "git push -u origin agent/release-readiness",
         fullOperation: "git push -u origin agent/release-readiness",
         requestedAt: now,
         expiresAt: now.addingTimeInterval(settings.approvalTimeout)
       )
       localDemoApprovalIDs.insert(request.id)
-      approvalQueue = [request]
+      localDemoSessionIDs.insert(id)
+      approvalQueue.append(request)
       upsertSession(
         id: id, turnID: "demo-turn", projectName: request.projectName,
         cwd: request.workingDirectory, model: nil, status: .awaitingApproval(request),
         timestamp: now)
       isExpanded = true
     case .completed:
+      localDemoSessionIDs.insert(id)
       upsertSession(
         id: id, turnID: "demo-turn", projectName: "Meetly", cwd: "/Demo/Meetly", model: nil,
         status: .completed(message: "All checks passed"), timestamp: now)
@@ -209,12 +253,13 @@ final class SessionStore {
       sessions[id] = session
       isExpanded = false
     case .failed:
+      localDemoSessionIDs.insert(id)
       upsertSession(
         id: id, turnID: "demo-turn", projectName: "Scoutly", cwd: "/Demo/Scoutly", model: nil,
-        status: .failed(message: "Build verification failed"), timestamp: now)
+        status: .failed(message: "Bridge self-test failed"), timestamp: now)
       isExpanded = false
     case .sessionStart, .ping:
-      reset()
+      break
     }
     notifyPresentationChanged()
   }
@@ -229,6 +274,7 @@ final class SessionStore {
         )
       }
     }.value
+    clearLocalDemoState()
     for (entry, projectName) in resolved where sessions[entry.sessionID] == nil {
       upsertSession(
         id: entry.sessionID,
@@ -245,11 +291,10 @@ final class SessionStore {
   }
 
   func testMultipleSessions() {
-    approvalCoordinator.deferAll()
-    approvalQueue.removeAll()
-    localDemoApprovalIDs.removeAll()
-    sessions.removeAll()
+    guard canPreviewTestStates else { return }
+    clearLocalDemoState()
     let now = Date()
+    localDemoSessionIDs.formUnion(["demo-primary", "demo-secondary"])
     upsertSession(
       id: "demo-primary", turnID: "demo-turn-1", projectName: "Scoutly",
       cwd: "/Demo/Scoutly", model: "gpt-5.6",
@@ -261,6 +306,84 @@ final class SessionStore {
       timestamp: now.addingTimeInterval(0.01))
     isExpanded = true
     notifyPresentationChanged()
+  }
+
+  @discardableResult
+  func beginIntegrationSelfTest(owner: IntegrationSelfTestOwner) -> IntegrationSelfTestLease? {
+    guard integrationSelfTestLease == nil, canPreviewTestStates else { return nil }
+    let lease = IntegrationSelfTestLease(owner: owner)
+    integrationSelfTestLease = lease
+    integrationSelfTestCancelled = false
+    return lease
+  }
+
+  func isIntegrationSelfTestActive(_ lease: IntegrationSelfTestLease) -> Bool {
+    integrationSelfTestLease == lease && !integrationSelfTestCancelled
+  }
+
+  func finishIntegrationSelfTest(_ lease: IntegrationSelfTestLease) {
+    guard integrationSelfTestLease == lease else { return }
+    integrationSelfTestLease = nil
+    integrationSelfTestCancelled = false
+  }
+
+  @discardableResult
+  func beginIntegrationDemoSession(_ sessionID: String, lease: IntegrationSelfTestLease) -> Bool {
+    guard isIntegrationSelfTestActive(lease),
+      integrationDemoSessionIDs.isEmpty,
+      canPreviewTestStates
+    else { return false }
+    clearLocalDemoState()
+    ignoredIntegrationDemoSessionIDs.remove(sessionID)
+    integrationDemoSessionIDs.insert(sessionID)
+    localDemoSessionIDs.insert(sessionID)
+    return true
+  }
+
+  func isIntegrationDemoSessionActive(_ sessionID: String) -> Bool {
+    integrationDemoSessionIDs.contains(sessionID) && localDemoSessionIDs.contains(sessionID)
+  }
+
+  func hasObservedIntegrationDemoEvent(_ event: IntegrationDemoEvent, sessionID: String) -> Bool {
+    guard localDemoSessionIDs.contains(sessionID),
+      !ignoredIntegrationDemoSessionIDs.contains(sessionID),
+      let session = sessions[sessionID]
+    else {
+      return false
+    }
+    return switch (event, session.status) {
+    case (.working, .working), (.completed, .completed): true
+    default: false
+    }
+  }
+
+  func finishIntegrationDemoSession(_ sessionID: String, discardPresentedState: Bool) {
+    guard discardPresentedState else { return }
+    integrationDemoSessionIDs.remove(sessionID)
+    ignoredIntegrationDemoSessionIDs.insert(sessionID)
+    guard localDemoSessionIDs.remove(sessionID) != nil else { return }
+    let requestIDs = Set(
+      approvalQueue
+        .filter { $0.sessionID == sessionID && localDemoApprovalIDs.contains($0.id) }
+        .map(\.id)
+    )
+    approvalQueue.removeAll { requestIDs.contains($0.id) }
+    localDemoApprovalIDs.subtract(requestIDs)
+    let removedSession = sessions.removeValue(forKey: sessionID) != nil
+    if removedSession || !requestIDs.isEmpty { notifyPresentationChanged() }
+  }
+
+  private func clearLocalDemoState(preservingSessionID: String? = nil) {
+    approvalQueue.removeAll { localDemoApprovalIDs.contains($0.id) }
+    localDemoApprovalIDs.removeAll()
+    for sessionID in localDemoSessionIDs where sessionID != preservingSessionID {
+      sessions.removeValue(forKey: sessionID)
+    }
+    if let preservingSessionID, localDemoSessionIDs.contains(preservingSessionID) {
+      localDemoSessionIDs = [preservingSessionID]
+    } else {
+      localDemoSessionIDs.removeAll()
+    }
   }
 
   private func handleApproval(_ event: BridgeEvent, projectName: String) async -> ApprovalDecision {
@@ -275,10 +398,11 @@ final class SessionStore {
 
     let fullOperation =
       event.toolInput?.prettyPrinted() ?? event.humanDescription ?? "Approval requested"
-    let description =
+    let reason =
       event.humanDescription
       ?? event.toolInput?.objectValue?["description"]?.stringValue
-      ?? displayOperation(from: event.toolInput)
+      ?? "Approval requested"
+    let operationSummary = displayOperation(from: event.toolInput)
     let request = ApprovalRequest(
       id: event.requestId,
       sessionID: event.sessionId,
@@ -286,7 +410,8 @@ final class SessionStore {
       projectName: projectName,
       workingDirectory: event.cwd,
       toolName: event.toolName ?? "Codex tool",
-      operationDescription: description,
+      operationDescription: reason,
+      operationSummary: operationSummary,
       fullOperation: fullOperation,
       requestedAt: event.timestamp,
       expiresAt: event.timestamp.addingTimeInterval(settings.approvalTimeout)
@@ -435,7 +560,7 @@ final class SessionStore {
   }
 
   private func displayOperation(from input: JSONValue?) -> String {
-    guard let input else { return "Approval requested" }
+    guard let input else { return "" }
     if let command = input.objectValue?["command"]?.stringValue { return command }
     return input.prettyPrinted()
   }

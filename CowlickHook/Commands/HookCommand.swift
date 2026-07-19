@@ -111,34 +111,16 @@ enum HookCommand {
 
   private static func runDemo(name: String, client: HookBridgeClient) -> Int32 {
     let cwd = FileManager.default.currentDirectoryPath
-    let eventName: HookBridgeEventName
-    switch name {
-    case "working": eventName = .working
-    case "approval": eventName = .approvalRequested
-    case "completed": eventName = .completed
-    case "failed": eventName = .failed
-    default:
+    guard
+      let event = demoEvent(
+        named: name,
+        sessionID: ProcessInfo.processInfo.environment["COWLICK_DEMO_SESSION_ID"]
+          ?? defaultDemoSessionID,
+        cwd: cwd)
+    else {
       writeError("unknown demo event: \(name)")
       return 2
     }
-
-    let event = HookBridgeEvent(
-      event: eventName,
-      sessionId: ProcessInfo.processInfo.environment["COWLICK_DEMO_SESSION_ID"]
-        ?? defaultDemoSessionID,
-      turnId: "demo-turn",
-      cwd: cwd,
-      prompt: name == "working" ? "Prepare the release verification" : nil,
-      lastAssistantMessage: name == "completed" ? "Release verification passed" : nil,
-      errorMessage: name == "failed" ? "Build verification failed" : nil,
-      toolName: name == "approval" ? "Bash" : nil,
-      toolInput: name == "approval"
-        ? .object([
-          "command": .string("git push origin main"),
-          "description": .string("Publish the verified branch"),
-        ]) : nil,
-      humanDescription: name == "approval" ? "Publish the verified branch" : nil
-    )
     do {
       let response = try client.send(event, waitForResponse: name == "approval")
       if let response {
@@ -151,6 +133,33 @@ enum HookCommand {
       writeError(error.localizedDescription)
       return 1
     }
+  }
+
+  static func demoEvent(named name: String, sessionID: String, cwd: String) -> HookBridgeEvent? {
+    let eventName: HookBridgeEventName
+    switch name {
+    case "working": eventName = .working
+    case "approval": eventName = .approvalRequested
+    case "completed": eventName = .completed
+    case "failed": eventName = .failed
+    default: return nil
+    }
+    return HookBridgeEvent(
+      event: eventName,
+      sessionId: sessionID,
+      turnId: "demo-turn",
+      cwd: cwd,
+      prompt: name == "working" ? "Prepare the release verification" : nil,
+      lastAssistantMessage: name == "completed" ? "Release verification passed" : nil,
+      errorMessage: name == "failed" ? "Bridge self-test failed" : nil,
+      toolName: name == "approval" ? "Bash" : nil,
+      toolInput: name == "approval"
+        ? .object([
+          "command": .string("git push origin main"),
+          "description": .string("Publish the verified branch"),
+        ]) : nil,
+      humanDescription: name == "approval" ? "Publish the verified branch" : nil
+    )
   }
 
   static func event(from input: HookInput) -> HookBridgeEvent {

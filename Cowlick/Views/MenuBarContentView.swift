@@ -306,6 +306,23 @@ struct MenuBarContentView: View {
       actionButton("Open Codex", systemImage: "terminal") {
         CodexActivationService.openCodex(fallbackDirectory: store.displaySession?.workingDirectory)
       }
+      Menu {
+        Button("Working") { store.testState(.working) }
+        Button("Approval") { store.testState(.approvalRequested) }
+        Button("Completed") { store.testState(.completed) }
+        Button("Multiple Sessions") { store.testMultipleSessions() }
+        Divider()
+        Button("Failed Preview") { store.testState(.failed) }
+      } label: {
+        Label("Test State", systemImage: "play.circle")
+          .frame(maxWidth: .infinity, alignment: .leading)
+          .contentShape(Rectangle())
+          .padding(.horizontal, 14)
+          .padding(.vertical, 6)
+      }
+      .menuStyle(.borderlessButton)
+      .accessibilityIdentifier("test-state-menu")
+      .disabled(!store.canPreviewTestStates)
       actionButton("Settings", systemImage: "gearshape") {
         WindowCoordinator.shared.openSettingsForTesting()
       }

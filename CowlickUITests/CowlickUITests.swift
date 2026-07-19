@@ -39,6 +39,12 @@ final class CowlickUITests: XCTestCase {
     app.typeKey(.return, modifierFlags: [])
     XCTAssertTrue(allow.waitForExistence(timeout: 1))
     XCTAssertTrue(deny.exists)
+    XCTAssertTrue(
+      app.staticTexts[
+        "Reason: Publish the verified branch to the configured GitHub remote"
+      ].exists)
+    XCTAssertTrue(
+      app.staticTexts["Operation: git push -u origin agent/release-readiness"].exists)
   }
 
   func testDenyClearsLocalApprovalDemo() {
@@ -63,11 +69,19 @@ final class CowlickUITests: XCTestCase {
     XCTAssertTrue(visible)
   }
 
+  func testCompletedResultPreviewRendersWhenEnabled() {
+    let app = launch(
+      arguments: ["--state=completed", "--expanded", "--show-result-previews"])
+    let completed = sessionRow(in: app, id: "demo-visual-state")
+    XCTAssertTrue(completed.waitForExistence(timeout: 3))
+    XCTAssertEqual(completed.label, "Meetly, Completed, All checks passed")
+  }
+
   func testFailedStateIsAccessible() {
     let app = launch(arguments: ["--state=failed", "--expanded"])
     let failedSession = sessionRow(in: app, id: "demo-visual-state")
     XCTAssertTrue(failedSession.waitForExistence(timeout: 3))
-    XCTAssertEqual(failedSession.label, "Scoutly, Failed")
+    XCTAssertEqual(failedSession.label, "Scoutly, Failed, Bridge self-test failed")
     XCTAssertTrue(app.buttons["Open Diagnostics"].exists)
   }
 

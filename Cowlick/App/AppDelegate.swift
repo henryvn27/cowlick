@@ -27,6 +27,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     WindowCoordinator.shared.configure(services: services)
     configureUITestingIfNeeded(services)
     guard !isUITesting else { return }
+    do {
+      try services.hookInstaller.refreshInstalledHelperIfNeeded()
+    } catch {
+      services.eventLogger.error("Helper refresh failed: \(error.localizedDescription)")
+    }
 
     let timeoutDefaults = UserDefaults.standard
     let server = LocalSocketServer(
@@ -57,9 +62,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       await services.sessionStore.restoreLifecycleSessions(recovered)
     }
 
-    if !services.settings.onboardingComplete && !CommandLine.arguments.contains("--ui-testing") {
+    let integrationHealthy = services.hookInstaller.status().isHealthy
+    if services.settings.integrationIntentionallyRemoved, integrationHealthy {
+      services.settings.integrationIntentionallyRemoved = false
+    }
+    if Self.shouldOpenOnboarding(
+      onboardingComplete: services.settings.onboardingComplete,
+      integrationIntentionallyRemoved: services.settings.integrationIntentionallyRemoved,
+      integrationHealthy: integrationHealthy)
+    {
       WindowCoordinator.shared.openOnboarding()
     }
+  }
+
+  static func shouldOpenOnboarding(
+    onboardingComplete: Bool,
+    integrationIntentionallyRemoved _: Bool,
+    integrationHealthy: Bool
+  ) -> Bool {
+    !onboardingComplete || !integrationHealthy
   }
 
   func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
@@ -83,6 +104,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
   private func configureUITestingIfNeeded(_ services: AppServices) {
     guard CommandLine.arguments.contains("--ui-testing") else { return }
+    services.settings.showResultPreviews = CommandLine.arguments.contains("--show-result-previews")
     let stateName = CommandLine.arguments.first(where: { $0.hasPrefix("--state=") })
       .map { String($0.dropFirst("--state=".count)) }
     Task { @MainActor in

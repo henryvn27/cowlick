@@ -23,7 +23,12 @@ enum HookInstallerError: LocalizedError {
   case invalidRoot
   case invalidHooksObject
   case bundledHelperMissing
+  case installedHelperUnavailable
+  case automaticHelperRefreshUnavailable
+  case integrationMutationUnavailableDuringUITesting
   case shimConflict
+  case helperConflict
+  case helperReplacementFailed(Int32)
   case validationFailed
   case atomicWriteFailed(Int32)
   case configurationChanged
@@ -33,8 +38,18 @@ enum HookInstallerError: LocalizedError {
     case .invalidRoot: "hooks.json must contain a JSON object at its root."
     case .invalidHooksObject: "The existing hooks field is not a JSON object."
     case .bundledHelperMissing: "The bundled Cowlick hook helper is missing."
+    case .installedHelperUnavailable:
+      "The installed Cowlick helper is unavailable. Repair Codex integration first."
+    case .automaticHelperRefreshUnavailable:
+      "Run this self-test from Cowlick installed in /Applications or ~/Applications."
+    case .integrationMutationUnavailableDuringUITesting:
+      "Codex integration cannot be changed during Cowlick UI testing."
     case .shimConflict:
-      "~/.local/bin/cowlick-hook already exists and is not the Cowlick symlink. Move it aside before installing."
+      "An integration helper shim already exists and is not Cowlick's owned symlink. Move it aside before changing the integration."
+    case .helperConflict:
+      "The installed helper path is not the bundled Cowlick helper. Move it aside before changing the integration."
+    case .helperReplacementFailed(let code):
+      "The installed helper could not be replaced atomically (errno \(code))."
     case .validationFailed: "The merged hook configuration did not pass JSON validation."
     case .atomicWriteFailed(let code):
       "The hook configuration could not be replaced atomically (errno \(code))."
@@ -49,6 +64,9 @@ struct HookInstaller {
 
   private let fileManager: FileManager
   private let homeDirectory: URL
+  private let bundledHelperURL: URL
+  private let allowsAutomaticHelperRefresh: Bool
+  private let allowsIntegrationMutation: Bool
   let hooksURL: URL
   let shimURL: URL
   let installedHelperURL: URL
@@ -57,10 +75,23 @@ struct HookInstaller {
 
   init(
     fileManager: FileManager = .default,
-    homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
+    homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
+    applicationBundleURL: URL? = nil,
+    bundledHelperURL: URL? = nil,
+    arguments: [String]? = nil
   ) {
+    let applicationBundleURL = applicationBundleURL ?? Bundle.main.bundleURL
+    let arguments = arguments ?? CommandLine.arguments
     self.fileManager = fileManager
     self.homeDirectory = homeDirectory
+    self.bundledHelperURL =
+      bundledHelperURL
+      ?? applicationBundleURL.appendingPathComponent("Contents/Helpers/cowlick-hook")
+    allowsAutomaticHelperRefresh = Self.allowsAutomaticHelperRefresh(
+      applicationBundleURL: applicationBundleURL,
+      homeDirectory: homeDirectory,
+      arguments: arguments)
+    allowsIntegrationMutation = !arguments.contains("--ui-testing")
     hooksURL = homeDirectory.appendingPathComponent(".codex/hooks.json")
     shimURL = homeDirectory.appendingPathComponent(".local/bin/cowlick-hook")
     installedHelperURL = homeDirectory.appendingPathComponent(
@@ -93,10 +124,11 @@ struct HookInstaller {
   }
 
   func installOrRepair() throws {
-    try installBundledHelper()
-    try fileManager.createDirectory(
-      at: hooksURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-    try withConfigurationLock {
+    guard allowsIntegrationMutation else {
+      throw HookInstallerError.integrationMutationUnavailableDuringUITesting
+    }
+    try withIntegrationLock {
+      try validateLegacyHelperRemoval()
       let existed = fileManager.fileExists(atPath: hooksURL.path)
       let originalData = existed ? try Data(contentsOf: hooksURL) : Data("{}".utf8)
       let mergedData = try Self.merging(
@@ -104,33 +136,90 @@ struct HookInstaller {
         command: Self.hookCommand(for: shimURL),
         legacyCommands: [Self.hookCommand(for: legacyShimURL)])
 
+      try installBundledHelper()
       if existed, mergedData != originalData { try writePrivateBackup(originalData) }
       if !existed || mergedData != originalData {
         try atomicWrite(mergedData, to: hooksURL, expectedOriginal: existed ? originalData : nil)
       }
+      try removeLegacyInstalledHelper()
     }
-    try removeLegacyInstalledHelper()
   }
 
   func removeHooks() throws {
-    try fileManager.createDirectory(
-      at: hooksURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-    try withConfigurationLock {
-      guard fileManager.fileExists(atPath: hooksURL.path) else { return }
-      let originalData = try Data(contentsOf: hooksURL)
-      let updatedData = try Self.removing(
-        originalData,
-        command: Self.hookCommand(for: shimURL),
-        legacyCommands: [Self.hookCommand(for: legacyShimURL)])
-      guard updatedData != originalData else { return }
-      try writePrivateBackup(originalData)
-      try atomicWrite(updatedData, to: hooksURL, expectedOriginal: originalData)
+    guard allowsIntegrationMutation else {
+      throw HookInstallerError.integrationMutationUnavailableDuringUITesting
+    }
+    try withIntegrationLock { try removeHooksLocked() }
+  }
+
+  func removeIntegration() throws {
+    guard allowsIntegrationMutation else {
+      throw HookInstallerError.integrationMutationUnavailableDuringUITesting
+    }
+    try withIntegrationLock {
+      try validateIntegrationRemoval()
+      try removeHooksLocked()
+      try validateIntegrationRemoval()
+      if hasOwnedShim { try fileManager.removeItem(at: shimURL) }
+      if pathExistsWithoutFollowingSymlinks(installedHelperURL) {
+        try fileManager.removeItem(at: installedHelperURL)
+      }
+      try removeLegacyInstalledHelper()
     }
   }
 
-  func removeInstalledHelper() throws {
-    try removeHelper(shim: shimURL, installedHelper: installedHelperURL)
-    try removeLegacyInstalledHelper()
+  func refreshInstalledHelperIfNeeded() throws {
+    guard allowsAutomaticHelperRefresh, hasOwnedShim else { return }
+    try withIntegrationLock {
+      guard hasOwnedShim else { return }
+      try installBundledHelper()
+    }
+  }
+
+  func currentInstalledHelperURL() throws -> URL {
+    guard allowsAutomaticHelperRefresh else {
+      throw HookInstallerError.automaticHelperRefreshUnavailable
+    }
+    return try withIntegrationLock {
+      guard hasOwnedShim else { throw HookInstallerError.installedHelperUnavailable }
+      try installBundledHelper()
+      guard helperExists else { throw HookInstallerError.installedHelperUnavailable }
+      return installedHelperURL
+    }
+  }
+
+  func installedHelperURLForExplicitSelfTest() throws -> URL {
+    guard allowsIntegrationMutation else {
+      throw HookInstallerError.integrationMutationUnavailableDuringUITesting
+    }
+    guard helperExists else { throw HookInstallerError.installedHelperUnavailable }
+    return installedHelperURL
+  }
+
+  static func allowsAutomaticHelperRefresh(
+    applicationBundleURL: URL,
+    homeDirectory: URL,
+    arguments: [String]
+  ) -> Bool {
+    guard !arguments.contains("--ui-testing") else { return false }
+    let bundle = applicationBundleURL.standardizedFileURL
+    let recognizedLocations = [
+      URL(fileURLWithPath: "/Applications/Cowlick.app", isDirectory: true),
+      homeDirectory.appendingPathComponent("Applications/Cowlick.app", isDirectory: true),
+    ]
+    return recognizedLocations.contains { location in
+      let recognized = location.standardizedFileURL
+      guard bundle.path == recognized.path,
+        bundle.resolvingSymlinksInPath().path == recognized.path
+      else { return false }
+      var information = stat()
+      if lstat(bundle.path, &information) == 0,
+        information.st_mode & S_IFMT == S_IFLNK
+      {
+        return false
+      }
+      return true
+    }
   }
 
   static func merging(
@@ -183,23 +272,77 @@ struct HookInstaller {
   }
 
   private var helperExists: Bool {
-    guard fileManager.isExecutableFile(atPath: installedHelperURL.path),
-      fileManager.fileExists(atPath: shimURL.path)
+    guard installedHelperMatchesBundle,
+      fileManager.isExecutableFile(atPath: installedHelperURL.path),
+      hasOwnedShim
     else { return false }
-    return (try? fileManager.destinationOfSymbolicLink(atPath: shimURL.path))
-      == installedHelperURL.path
+    return true
+  }
+
+  private var installedHelperMatchesBundle: Bool {
+    guard installedHelperIsRegularFile,
+      fileManager.fileExists(atPath: bundledHelperURL.path)
+    else { return false }
+    return fileManager.contentsEqual(
+      atPath: installedHelperURL.path, andPath: bundledHelperURL.path)
+  }
+
+  private var installedHelperIsRegularFile: Bool {
+    var information = stat()
+    return lstat(installedHelperURL.path, &information) == 0
+      && information.st_mode & S_IFMT == S_IFREG
+      && information.st_uid == getuid()
+  }
+
+  private var hasOwnedShim: Bool {
+    hasOwnedShim(shim: shimURL, installedHelper: installedHelperURL)
+  }
+
+  private func validateIntegrationRemoval() throws {
+    if pathExistsWithoutFollowingSymlinks(shimURL), !hasOwnedShim {
+      throw HookInstallerError.shimConflict
+    }
+    if pathExistsWithoutFollowingSymlinks(installedHelperURL) {
+      guard installedHelperMatchesBundle else {
+        throw HookInstallerError.helperConflict
+      }
+    }
+    try validateLegacyHelperRemoval()
+  }
+
+  private func validateLegacyHelperRemoval() throws {
+    let ownsShim = hasOwnedShim(shim: legacyShimURL, installedHelper: legacyInstalledHelperURL)
+    if pathExistsWithoutFollowingSymlinks(legacyShimURL), !ownsShim {
+      throw HookInstallerError.shimConflict
+    }
+    if pathExistsWithoutFollowingSymlinks(legacyInstalledHelperURL), !ownsShim {
+      throw HookInstallerError.helperConflict
+    }
+  }
+
+  private func hasOwnedShim(shim: URL, installedHelper: URL) -> Bool {
+    (try? fileManager.destinationOfSymbolicLink(atPath: shim.path)) == installedHelper.path
+  }
+
+  private func pathExistsWithoutFollowingSymlinks(_ url: URL) -> Bool {
+    var information = stat()
+    return lstat(url.path, &information) == 0
   }
 
   private func installBundledHelper() throws {
-    let bundled = Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/cowlick-hook")
-    guard fileManager.fileExists(atPath: bundled.path) else {
+    guard fileManager.fileExists(atPath: bundledHelperURL.path) else {
       throw HookInstallerError.bundledHelperMissing
     }
-    if fileManager.fileExists(atPath: shimURL.path),
-      (try? fileManager.destinationOfSymbolicLink(atPath: shimURL.path))
-        != installedHelperURL.path
+    let shimDestination = try? fileManager.destinationOfSymbolicLink(atPath: shimURL.path)
+    if fileManager.fileExists(atPath: shimURL.path) || shimDestination != nil,
+      shimDestination != installedHelperURL.path
     {
       throw HookInstallerError.shimConflict
+    }
+    if pathExistsWithoutFollowingSymlinks(installedHelperURL), !hasOwnedShim,
+      !installedHelperMatchesBundle
+    {
+      throw HookInstallerError.helperConflict
     }
     try fileManager.createDirectory(
       at: installedHelperURL.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -208,13 +351,20 @@ struct HookInstaller {
     try fileManager.setAttributes(
       [.posixPermissions: 0o700], ofItemAtPath: installedHelperURL.deletingLastPathComponent().path)
 
-    let temporaryHelper = installedHelperURL.deletingLastPathComponent()
-      .appendingPathComponent(".cowlick-hook-\(UUID().uuidString).tmp")
-    defer { try? fileManager.removeItem(at: temporaryHelper) }
-    try fileManager.copyItem(at: bundled, to: temporaryHelper)
-    try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: temporaryHelper.path)
-    guard rename(temporaryHelper.path, installedHelperURL.path) == 0 else {
-      throw HookInstallerError.atomicWriteFailed(errno)
+    if !installedHelperIsRegularFile
+      || !fileManager.isExecutableFile(atPath: installedHelperURL.path)
+      || !fileManager.contentsEqual(
+        atPath: installedHelperURL.path,
+        andPath: bundledHelperURL.path)
+    {
+      let temporaryHelper = installedHelperURL.deletingLastPathComponent()
+        .appendingPathComponent(".cowlick-hook-\(UUID().uuidString).tmp")
+      defer { try? fileManager.removeItem(at: temporaryHelper) }
+      try fileManager.copyItem(at: bundledHelperURL, to: temporaryHelper)
+      try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: temporaryHelper.path)
+      guard rename(temporaryHelper.path, installedHelperURL.path) == 0 else {
+        throw HookInstallerError.helperReplacementFailed(errno)
+      }
     }
 
     if fileManager.fileExists(atPath: shimURL.path) {
@@ -371,7 +521,9 @@ struct HookInstaller {
     "'\(value.replacingOccurrences(of: "'", with: "'\\''"))'"
   }
 
-  private func withConfigurationLock<Result>(_ body: () throws -> Result) throws -> Result {
+  private func withIntegrationLock<Result>(_ body: () throws -> Result) throws -> Result {
+    try fileManager.createDirectory(
+      at: hooksURL.deletingLastPathComponent(), withIntermediateDirectories: true)
     let lockURL = hooksURL.deletingLastPathComponent()
       .appendingPathComponent(".hooks.json.cowlick.lock")
     let descriptor = Darwin.open(lockURL.path, O_RDWR | O_CREAT, 0o600)
@@ -386,6 +538,18 @@ struct HookInstaller {
       Darwin.close(descriptor)
     }
     return try body()
+  }
+
+  private func removeHooksLocked() throws {
+    guard fileManager.fileExists(atPath: hooksURL.path) else { return }
+    let originalData = try Data(contentsOf: hooksURL)
+    let updatedData = try Self.removing(
+      originalData,
+      command: Self.hookCommand(for: shimURL),
+      legacyCommands: [Self.hookCommand(for: legacyShimURL)])
+    guard updatedData != originalData else { return }
+    try writePrivateBackup(originalData)
+    try atomicWrite(updatedData, to: hooksURL, expectedOriginal: originalData)
   }
 
   private func writePrivateBackup(_ data: Data) throws {
@@ -420,15 +584,12 @@ struct HookInstaller {
   }
 
   private func removeLegacyInstalledHelper() throws {
-    try removeHelper(shim: legacyShimURL, installedHelper: legacyInstalledHelperURL)
-  }
-
-  private func removeHelper(shim: URL, installedHelper: URL) throws {
-    if (try? fileManager.destinationOfSymbolicLink(atPath: shim.path)) == installedHelper.path {
-      try fileManager.removeItem(at: shim)
+    guard hasOwnedShim(shim: legacyShimURL, installedHelper: legacyInstalledHelperURL) else {
+      return
     }
-    if fileManager.fileExists(atPath: installedHelper.path) {
-      try fileManager.removeItem(at: installedHelper)
+    try fileManager.removeItem(at: legacyShimURL)
+    if pathExistsWithoutFollowingSymlinks(legacyInstalledHelperURL) {
+      try fileManager.removeItem(at: legacyInstalledHelperURL)
     }
   }
 }

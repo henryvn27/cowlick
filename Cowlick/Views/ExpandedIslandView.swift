@@ -17,6 +17,7 @@ struct ExpandedIslandView: View {
       SessionListView(
         sessions: store.sessionSummaries,
         showPromptPreviews: store.settings.showPromptPreviews,
+        showResultPreviews: store.settings.showResultPreviews,
         openDiagnostics: { WindowCoordinator.shared.openDiagnostics() })
     }
   }

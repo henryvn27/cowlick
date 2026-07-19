@@ -98,4 +98,12 @@ final class HookProtocolTests: XCTestCase {
   func testDemoCommandsReuseOneDefaultSession() {
     XCTAssertEqual(HookCommand.defaultDemoSessionID, "cowlick-demo")
   }
+
+  func testFailedDemoReportsBridgeSelfTestFailure() throws {
+    let event = try XCTUnwrap(
+      HookCommand.demoEvent(named: "failed", sessionID: "self-test", cwd: "/tmp"))
+
+    XCTAssertEqual(event.event, .failed)
+    XCTAssertEqual(event.errorMessage, "Bridge self-test failed")
+  }
 }
