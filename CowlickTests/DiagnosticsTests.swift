@@ -617,6 +617,28 @@ final class DiagnosticsTests: XCTestCase {
     )
   }
 
+  func testCompoundProtectedLabelsPreferAuthorizationAndBearerSemantics() {
+    for input in [
+      "Authorization token: Bearer MASKME; public",
+      #""Authorization token": Digest token=MASKME, response=MASKMORE"#,
+      "HTTP Authorization token: AWS4 Credential=MASKME, Signature=MASKMORE",
+    ] {
+      let output = EventLogger.sanitizeError(input)
+      XCTAssertTrue(output.hasSuffix("authorization=<redacted>"), output)
+      XCTAssertFalse(output.contains("MASKME"), output)
+      XCTAssertFalse(output.contains("MASKMORE"), output)
+    }
+
+    for input in [
+      "Bearer token: MASKME; public",
+      #""Bearer token"=MASKME, public"#,
+    ] {
+      let output = EventLogger.sanitizeError(input)
+      XCTAssertTrue(output.contains("<redacted>"), output)
+      XCTAssertFalse(output.contains("MASKME"), output)
+    }
+  }
+
   func testProtectedValuesHonorPairedUnicodeWrappersAndFailClosed() {
     XCTAssertEqual(
       EventLogger.sanitizeError("Bearer “first;secret tail” visible"),

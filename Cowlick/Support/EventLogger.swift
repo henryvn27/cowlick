@@ -722,18 +722,23 @@ final class EventLogger {
       let next = skipWhitespace(in: scalars, from: afterWord)
       if let delimiter = credentialDelimiter(in: scalars, afterLabelAt: afterWord) {
         var normalized = ""
+        var fallback: SensitiveField?
         for word in words.reversed() {
           normalized = normalizedIdentifier(scalars[word]) + normalized
           guard isSensitiveIdentifier(normalized) else { continue }
-          return SensitiveField(
+          let field = SensitiveField(
             replacementStart: quote == nil ? word.lowerBound : start,
             labelStart: quote == nil ? word.lowerBound : identifierStart,
             labelEnd: words.last!.upperBound,
             delimiter: delimiter,
             normalizedLabel: normalized
           )
+          if isAuthorizationIdentifier(normalized) || isBearerIdentifier(normalized) {
+            return field
+          }
+          if fallback == nil { fallback = field }
         }
-        return nil
+        return fallback
       }
       guard words.count < maximumCredentialLabelWords, next > afterWord,
         next < scalars.count, isIdentifierScalar(scalars[next])
