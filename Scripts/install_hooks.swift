@@ -329,10 +329,13 @@ func validateHelperInstallation(from source: URL) throws {
   if pathExistsWithoutFollowingSymlinks(shim), !ownsShim {
     throw InstallerFailure.shimConflict
   }
-  if pathExistsWithoutFollowingSymlinks(installedHelper), !ownsShim,
-    !helperMatchesSource(installedHelper, source: source)
-  {
-    throw InstallerFailure.helperConflict
+  if pathExistsWithoutFollowingSymlinks(installedHelper) {
+    guard isOwnedRegularFile(installedHelper) else {
+      throw InstallerFailure.helperConflict
+    }
+    if !ownsShim, !helperMatchesSource(installedHelper, source: source) {
+      throw InstallerFailure.helperConflict
+    }
   }
 }
 
@@ -372,8 +375,10 @@ func validateHelperRemoval(shim helperShim: URL, installedHelper helper: URL) th
   if pathExistsWithoutFollowingSymlinks(helperShim), !ownsShim {
     throw InstallerFailure.shimConflict
   }
-  if pathExistsWithoutFollowingSymlinks(helper), !ownsShim {
-    throw InstallerFailure.helperConflict
+  if pathExistsWithoutFollowingSymlinks(helper) {
+    guard isOwnedRegularFile(helper), ownsShim else {
+      throw InstallerFailure.helperConflict
+    }
   }
 }
 

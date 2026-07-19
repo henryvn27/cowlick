@@ -28,11 +28,12 @@ install_started=false
 legacy_present=false
 hooks_updated=false
 legacy_removed=false
+rollback_snapshot_retained=false
 rollback_directory="$(mktemp -d "${TMPDIR%/}/cowlick-install-rollback.XXXXXX")"
 chmod 700 "$rollback_directory"
 
 cleanup_installer() {
-  rm -rf "$rollback_directory"
+  $rollback_snapshot_retained || rm -rf "$rollback_directory"
 }
 
 rollback_install() {
@@ -42,6 +43,7 @@ rollback_install() {
   fi
 
   set +e
+  local integration_restored=true
   print -u2 "Local installation failed; restoring the previous Cowlick installation."
   rollback_pids=(${(f)"$(pgrep -x Cowlick 2>/dev/null || true)"})
   for process_id in $rollback_pids; do
@@ -49,19 +51,39 @@ rollback_install() {
     [[ "$process_path" == *"/Cowlick.app/Contents/MacOS/Cowlick"* ]] && kill "$process_id" 2>/dev/null
   done
   if $hooks_updated; then
-    swift "$script_dir/install_hooks.swift" restore --snapshot "$rollback_directory" \
-      >/dev/null 2>&1
+    local restore_output restore_exit_code
+    restore_output="$(
+      swift "$script_dir/install_hooks.swift" restore --snapshot "$rollback_directory" 2>&1
+    )"
+    restore_exit_code=$?
+    if (( restore_exit_code != 0 )); then
+      integration_restored=false
+      rollback_snapshot_retained=true
+      [[ -n "$restore_output" ]] && print -u2 -- "$restore_output"
+      print -u2 -- "Cowlick integration restoration failed (exit $restore_exit_code)."
+    fi
   fi
   [[ -d "$destination" ]] && /bin/rm -rf "$destination"
   if [[ -n "$backup" && -d "$backup" ]]; then
     mv "$backup" "$destination"
     open -n "$destination" >/dev/null 2>&1
-    print -u2 "Previous local Cowlick app restored."
+    if $integration_restored; then
+      print -u2 "Previous local Cowlick app restored."
+    else
+      print -u2 "Previous local Cowlick app restored; integration restoration failed."
+    fi
   else
-    print -u2 "Partial Cowlick installation removed."
+    if $integration_restored; then
+      print -u2 "Partial Cowlick installation removed."
+    else
+      print -u2 "Partial Cowlick app installation removed; integration restoration failed."
+    fi
   fi
   if $legacy_present && [[ -d "$legacy_destination" ]]; then
     open -n "$legacy_destination" >/dev/null 2>&1
+  fi
+  if $rollback_snapshot_retained; then
+    print -u2 -- "Rollback snapshot retained at $rollback_directory"
   fi
   return "$exit_code"
 }

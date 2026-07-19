@@ -40,6 +40,32 @@ assert_invalid_hooks_rejected_without_residue() {
 assert_invalid_hooks_rejected_without_residue malformed '{'
 assert_invalid_hooks_rejected_without_residue non-object '[]'
 
+nested_helper_home="$temporary_directory/nested-helper-home"
+nested_helper="$nested_helper_home/Library/Application Support/Cowlick/bin/cowlick-hook"
+nested_helper_target="$temporary_directory/nested-helper-target"
+nested_helper_shim="$nested_helper_home/.local/bin/cowlick-hook"
+nested_helper_hooks="$nested_helper_home/.codex/hooks.json"
+nested_helper_snapshot="$temporary_directory/nested-helper-snapshot"
+mkdir -p "${nested_helper:h}" "${nested_helper_shim:h}" "${nested_helper_hooks:h}"
+print -n -- '#!/bin/zsh\nprint nested\n' > "$nested_helper_target"
+chmod 755 "$nested_helper_target"
+ln -s "$nested_helper_target" "$nested_helper"
+ln -s "$nested_helper" "$nested_helper_shim"
+print -n -- '{"custom":"preserve","hooks":{}}' > "$nested_helper_hooks"
+nested_helper_hooks_hash="$(shasum -a 256 "$nested_helper_hooks" | awk '{print $1}')"
+nested_helper_target_hash="$(shasum -a 256 "$nested_helper_target" | awk '{print $1}')"
+if COWLICK_HOME="$nested_helper_home" swift "$script_dir/install_hooks.swift" install \
+  --helper "$helper" --snapshot "$nested_helper_snapshot" >/dev/null 2>&1; then
+  print -u2 "installer accepted a nested helper symlink"
+  exit 1
+fi
+[[ ! -e "$nested_helper_snapshot" ]]
+[[ -L "$nested_helper" && "$(readlink "$nested_helper")" == "$nested_helper_target" ]]
+[[ -L "$nested_helper_shim" && "$(readlink "$nested_helper_shim")" == "$nested_helper" ]]
+[[ "$(shasum -a 256 "$nested_helper_hooks" | awk '{print $1}')" == "$nested_helper_hooks_hash" ]]
+[[ "$(shasum -a 256 "$nested_helper_target" | awk '{print $1}')" \
+    == "$nested_helper_target_hash" ]]
+
 invalid_restore_home="$temporary_directory/invalid-restore-home"
 invalid_restore_snapshot="$temporary_directory/invalid-restore-snapshot"
 mkdir -p "$invalid_restore_home/.codex" "$invalid_restore_snapshot"

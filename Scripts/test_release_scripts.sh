@@ -221,6 +221,12 @@ pause_at_barrier() {
   exit 1
 }
 
+if (( $# >= 2 )) && [[ "$1" == */install_hooks.swift && "$2" == restore ]] \
+  && [[ "${COWLICK_TEST_RESTORE_FAIL:-}" == 1 ]]; then
+  print -u2 "forced integration restore failure"
+  exit 73
+fi
+
 if (( $# >= 2 )) && [[ "$1" == */install_hooks.swift ]] \
   && [[ "$2" == "${COWLICK_TEST_BARRIER_COMMAND:-}" ]] \
   && [[ -n "${COWLICK_TEST_BARRIER_DIRECTORY:-}" ]]; then
@@ -738,6 +744,38 @@ grep -Fq 'retained-install' \
   "$install_before_rollback_home/Library/Application Support/Cowlick/bin/cowlick-hook"
 grep -Fq 'retained-install' \
   "$install_before_rollback_home/Applications/Cowlick.app/Contents/Helpers/cowlick-hook"
+
+restore_failure_home="$temporary_directory/wrapper-restore-failure-home"
+restore_failure_output="$temporary_directory/wrapper-restore-failure-output"
+env PATH="$wrapper_fake_bin:$PATH" HOME="$restore_failure_home" \
+  COWLICK_HOME="$restore_failure_home" TMPDIR="$temporary_directory" \
+  COWLICK_TEST_REAL_SWIFT="$real_swift" COWLICK_TEST_HELPER_MARKER=before-restore-failure \
+  "$wrapper_scripts/install_local.sh" >/dev/null
+if env PATH="$wrapper_fake_bin:$PATH" HOME="$restore_failure_home" \
+  COWLICK_HOME="$restore_failure_home" TMPDIR="$temporary_directory" \
+  COWLICK_TEST_REAL_SWIFT="$real_swift" COWLICK_TEST_HELPER_MARKER=failed-restore \
+  COWLICK_TEST_VERIFY_FAIL=1 COWLICK_TEST_RESTORE_FAIL=1 \
+  "$wrapper_scripts/install_local.sh" > "$restore_failure_output" 2>&1; then
+  print -u2 "local install unexpectedly survived forced integration restore failure"
+  exit 1
+fi
+grep -Fq 'forced integration restore failure' "$restore_failure_output"
+grep -Fq 'Cowlick integration restoration failed (exit 73).' "$restore_failure_output"
+grep -Fq 'Previous local Cowlick app restored; integration restoration failed.' \
+  "$restore_failure_output"
+if grep -Fxq 'Previous local Cowlick app restored.' "$restore_failure_output"; then
+  print -u2 "failed integration rollback claimed complete restoration"
+  exit 1
+fi
+retained_snapshot="$(sed -n 's/^Rollback snapshot retained at //p' \
+  "$restore_failure_output" | tail -1)"
+[[ -n "$retained_snapshot" && -d "$retained_snapshot" ]]
+grep -Fq 'before-restore-failure' "$retained_snapshot/cowlick-hook"
+[[ -s "$retained_snapshot/hooks.json" ]]
+grep -Fq 'before-restore-failure' \
+  "$restore_failure_home/Applications/Cowlick.app/Contents/Helpers/cowlick-hook"
+grep -Fq 'failed-restore' \
+  "$restore_failure_home/Library/Application Support/Cowlick/bin/cowlick-hook"
 
 legacy_cleanup_home="$temporary_directory/wrapper-legacy-cleanup-home"
 legacy_cleanup_output="$temporary_directory/wrapper-legacy-cleanup-output"
