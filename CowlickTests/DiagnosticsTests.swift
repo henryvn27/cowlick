@@ -95,6 +95,31 @@ final class DiagnosticsTests: XCTestCase {
     XCTAssertEqual(output.components(separatedBy: "<redacted>").count - 1, secrets.count)
   }
 
+  func testRedactsDottedSpacedAndMultiwordCredentialLabels() {
+    let input =
+      #"api.key=sk.live.secret; "api.key":"quoted.api.value"; "access.token":"access.value.tail"; client.secret='client.value.tail'; API key: spaced.value.tail; AWS secret access key: multi.value.tail"#
+    let output = EventLogger.sanitizeError(input)
+
+    for secret in [
+      "sk.live.secret", "quoted.api.value", "access.value.tail", "client.value.tail",
+      "spaced.value.tail", "multi.value.tail",
+    ] {
+      XCTAssertFalse(output.contains(secret), output)
+    }
+    XCTAssertTrue(output.contains("api.key=<redacted>"))
+    XCTAssertTrue(output.contains("access.token=<redacted>"))
+    XCTAssertTrue(output.contains("client.secret=<redacted>"))
+    XCTAssertTrue(output.contains("API key=<redacted>"))
+    XCTAssertTrue(output.contains("AWS secret access key=<redacted>"))
+  }
+
+  func testLeavesBareKeyProseAndNonsensitiveDottedLabelsUntouched() {
+    let input =
+      #"key: visible release.version=1.2.3 "display.name":"public.value" API key names only"#
+
+    XCTAssertEqual(EventLogger.sanitizeError(input), input)
+  }
+
   func testQuotedCredentialValuesHonorEscapesAndUnmatchedQuotedKeysFallBack() {
     XCTAssertEqual(EventLogger.sanitizeError(#"token="abc\"def""#), "token=<redacted>")
     XCTAssertEqual(EventLogger.sanitizeError(#""token=secret"#), "token=<redacted>")
@@ -112,6 +137,14 @@ final class DiagnosticsTests: XCTestCase {
     XCTAssertEqual(
       EventLogger.sanitizeError(#"Bearer "sk-live" tail; visible"#),
       "bearer=<redacted>; visible"
+    )
+    XCTAssertEqual(
+      EventLogger.sanitizeError("Authorization: Bearer auth.value api.key: field.value"),
+      "authorization=<redacted> api.key=<redacted>"
+    )
+    XCTAssertEqual(
+      EventLogger.sanitizeError("Authorization: Bearer auth.value API key: field.value"),
+      "authorization=<redacted> API key=<redacted>"
     )
   }
 

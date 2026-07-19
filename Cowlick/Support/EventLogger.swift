@@ -18,8 +18,17 @@ final class EventLogger {
     let removedBoundaryOffsets: Set<Int>
   }
 
+  private struct SensitiveField {
+    let replacementStart: Int
+    let labelStart: Int
+    let labelEnd: Int
+    let delimiter: Int
+    let normalizedLabel: String
+  }
+
   private static let maximumInputScalars = 4_096
   private static let maximumScannedInputScalars = maximumInputScalars * 4
+  private static let maximumCredentialLabelWords = 6
   private static let maximumErrorScalars = 400
 
   private(set) var recentEvents: [SanitizedBridgeRecord] = []
@@ -241,29 +250,30 @@ final class EventLogger {
         afterIdentifier += 1
       }
 
-      let whitespaceEnd = skipWhitespace(in: scalars, from: afterIdentifier)
       let identifier = scalars[identifierStart..<identifierEnd]
-      if whitespaceEnd < scalars.count, isCredentialDelimiter(scalars[whitespaceEnd]),
-        isSensitiveIdentifier(identifier)
-      {
-        let valueStart = skipWhitespace(in: scalars, from: whitespaceEnd + 1)
+      if let field = sensitiveField(in: scalars, from: index) {
+        let valueStart = skipWhitespace(in: scalars, from: field.delimiter + 1)
         let protectsContinuation =
-          isAuthorizationIdentifier(identifier) || isBearerIdentifier(identifier)
+          isAuthorizationIdentifier(field.normalizedLabel)
+          || isBearerIdentifier(field.normalizedLabel)
         let valueEnd =
           protectsContinuation
           ? protectedValueEnd(in: scalars, from: valueStart)
           : credentialValueEnd(in: scalars, from: valueStart)
         if let valueEnd {
-          output.append(contentsOf: string(from: scalars[cursor..<index]))
+          output.append(contentsOf: string(from: scalars[cursor..<field.replacementStart]))
           output.append(
-            contentsOf: isAuthorizationIdentifier(identifier)
-              ? "authorization" : string(from: identifier))
+            contentsOf: isAuthorizationIdentifier(field.normalizedLabel)
+              ? "authorization" : string(from: scalars[field.labelStart..<field.labelEnd]))
           output.append("=<redacted>")
           cursor = valueEnd
           index = valueEnd
           continue
         }
-      } else if whitespaceEnd > afterIdentifier, isBearerIdentifier(identifier),
+      }
+
+      let whitespaceEnd = skipWhitespace(in: scalars, from: afterIdentifier)
+      if whitespaceEnd > afterIdentifier, isBearerIdentifier(identifier),
         let valueEnd = protectedValueEnd(in: scalars, from: whitespaceEnd)
       {
         output.append(contentsOf: string(from: scalars[cursor..<index]))
@@ -334,7 +344,15 @@ final class EventLogger {
       if isExplicitValueTerminator(scalar) { break }
       if CharacterSet.whitespacesAndNewlines.contains(scalar) {
         let nextField = skipWhitespace(in: scalars, from: end)
-        if isSensitiveField(in: scalars, from: nextField) { break }
+        if let field = isSensitiveField(in: scalars, from: nextField) {
+          var boundary = field.replacementStart
+          while boundary > start,
+            CharacterSet.whitespacesAndNewlines.contains(scalars[boundary - 1])
+          {
+            boundary -= 1
+          }
+          return boundary
+        }
         end = nextField
         continue
       }
@@ -343,45 +361,104 @@ final class EventLogger {
     return end > start ? end : nil
   }
 
-  private static func isSensitiveField(in scalars: [UnicodeScalar], from start: Int) -> Bool {
-    guard start < scalars.count else { return false }
+  private static func isSensitiveField(
+    in scalars: [UnicodeScalar],
+    from start: Int
+  ) -> SensitiveField? {
+    sensitiveField(in: scalars, from: start)
+  }
+
+  private static func sensitiveField(
+    in scalars: [UnicodeScalar],
+    from start: Int
+  ) -> SensitiveField? {
+    guard start < scalars.count else { return nil }
     let quote = isQuote(scalars[start]) ? scalars[start] : nil
     let identifierStart = quote == nil ? start : start + 1
     guard identifierStart < scalars.count, isIdentifierScalar(scalars[identifierStart]) else {
-      return false
+      return nil
     }
     var identifierEnd = identifierStart
     while identifierEnd < scalars.count, isIdentifierScalar(scalars[identifierEnd]) {
       identifierEnd += 1
     }
-    var afterIdentifier = identifierEnd
-    if let quote, afterIdentifier < scalars.count, scalars[afterIdentifier] == quote {
-      afterIdentifier += 1
+
+    if let quote, identifierEnd < scalars.count, scalars[identifierEnd] == quote {
+      let delimiter = skipWhitespace(in: scalars, from: identifierEnd + 1)
+      let normalized = normalizedIdentifier(scalars[identifierStart..<identifierEnd])
+      guard delimiter < scalars.count, isCredentialDelimiter(scalars[delimiter]),
+        isSensitiveIdentifier(normalized)
+      else { return nil }
+      return SensitiveField(
+        replacementStart: start,
+        labelStart: identifierStart,
+        labelEnd: identifierEnd,
+        delimiter: delimiter,
+        normalizedLabel: normalized
+      )
     }
-    let delimiter = skipWhitespace(in: scalars, from: afterIdentifier)
-    return delimiter < scalars.count && isCredentialDelimiter(scalars[delimiter])
-      && isSensitiveIdentifier(scalars[identifierStart..<identifierEnd])
+
+    var words = [identifierStart..<identifierEnd]
+    var afterWord = identifierEnd
+    while true {
+      let next = skipWhitespace(in: scalars, from: afterWord)
+      if next < scalars.count, isCredentialDelimiter(scalars[next]) {
+        var normalized = ""
+        for word in words.reversed() {
+          normalized = normalizedIdentifier(scalars[word]) + normalized
+          guard isSensitiveIdentifier(normalized) else { continue }
+          return SensitiveField(
+            replacementStart: quote != nil && word.lowerBound == identifierStart
+              ? start : word.lowerBound,
+            labelStart: word.lowerBound,
+            labelEnd: words.last!.upperBound,
+            delimiter: next,
+            normalizedLabel: normalized
+          )
+        }
+        return nil
+      }
+      guard words.count < maximumCredentialLabelWords, next > afterWord,
+        next < scalars.count, isIdentifierScalar(scalars[next])
+      else { return nil }
+      var wordEnd = next
+      while wordEnd < scalars.count, isIdentifierScalar(scalars[wordEnd]) { wordEnd += 1 }
+      words.append(next..<wordEnd)
+      afterWord = wordEnd
+    }
   }
 
   private static func isSensitiveIdentifier(_ identifier: ArraySlice<UnicodeScalar>) -> Bool {
-    let normalized = normalizedIdentifier(identifier)
+    isSensitiveIdentifier(normalizedIdentifier(identifier))
+  }
+
+  private static func isSensitiveIdentifier(_ normalized: String) -> Bool {
     return [
-      "accesstoken", "refreshtoken", "clientsecret", "authtoken", "apikey",
+      "accesskey", "accesstoken", "refreshtoken", "clientsecret", "authtoken", "apikey",
       "authorization", "bearer", "password", "passwd", "token", "secret",
     ].contains { normalized.contains($0) }
   }
 
   private static func isAuthorizationIdentifier(_ identifier: ArraySlice<UnicodeScalar>) -> Bool {
-    normalizedIdentifier(identifier).contains("authorization")
+    isAuthorizationIdentifier(normalizedIdentifier(identifier))
+  }
+
+  private static func isAuthorizationIdentifier(_ normalized: String) -> Bool {
+    normalized.contains("authorization")
   }
 
   private static func isBearerIdentifier(_ identifier: ArraySlice<UnicodeScalar>) -> Bool {
-    normalizedIdentifier(identifier).contains("bearer")
+    isBearerIdentifier(normalizedIdentifier(identifier))
+  }
+
+  private static func isBearerIdentifier(_ normalized: String) -> Bool {
+    normalized.contains("bearer")
   }
 
   private static func normalizedIdentifier(_ identifier: ArraySlice<UnicodeScalar>) -> String {
     var normalized = ""
-    for scalar in identifier where scalar.value != 0x2D && scalar.value != 0x5F {
+    for scalar in identifier
+    where scalar.value != 0x2D && scalar.value != 0x2E && scalar.value != 0x5F {
       let value = scalar.value
       normalized.unicodeScalars.append(
         UnicodeScalar(value >= 0x41 && value <= 0x5A ? value + 0x20 : value)!)
@@ -394,7 +471,7 @@ final class EventLogger {
     return (value >= 0x30 && value <= 0x39)
       || (value >= 0x41 && value <= 0x5A)
       || (value >= 0x61 && value <= 0x7A)
-      || value == 0x2D || value == 0x5F
+      || value == 0x2D || value == 0x2E || value == 0x5F
   }
 
   private static func isQuote(_ scalar: UnicodeScalar) -> Bool {
