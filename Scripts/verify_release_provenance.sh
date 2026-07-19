@@ -1,17 +1,18 @@
-#!/bin/zsh
+#!/usr/bin/env bash
 set -euo pipefail
 
 release_ref="${1:-HEAD}"
 main_ref="${2:-refs/remotes/origin/main}"
 
 release_sha="$(git rev-parse --verify --end-of-options "${release_ref}^{commit}" 2>/dev/null)" \
-  || { print -u2 -- "release provenance error: cannot resolve release ref '$release_ref'"; exit 1; }
+  || { printf "release provenance error: cannot resolve release ref '%s'\n" "$release_ref" >&2; exit 1; }
 main_sha="$(git rev-parse --verify --end-of-options "${main_ref}^{commit}" 2>/dev/null)" \
-  || { print -u2 -- "release provenance error: cannot resolve main ref '$main_ref'"; exit 1; }
+  || { printf "release provenance error: cannot resolve main ref '%s'\n" "$main_ref" >&2; exit 1; }
 
 if [[ "$release_sha" != "$main_sha" ]]; then
-  print -u2 -- "release provenance error: release commit $release_sha does not match current main $main_sha"
+  printf 'release provenance error: release commit %s does not match current main %s\n' \
+    "$release_sha" "$main_sha" >&2
   exit 1
 fi
 
-print -r -- "$release_sha"
+printf '%s\n' "$release_sha"
