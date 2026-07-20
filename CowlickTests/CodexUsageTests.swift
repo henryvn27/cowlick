@@ -51,6 +51,51 @@ final class CodexUsageTests: XCTestCase {
     XCTAssertEqual(CodexUsageService.maximumResponseSize, 1_048_576)
   }
 
+  func testResponseCursorExaminesStreamingNoiseOnceAndRequiresTopLevelID() {
+    var cursor = JSONRPCResponseCursor()
+    var output = Data()
+
+    for _ in 0..<4_096 {
+      output.append(Data("malicious\n".utf8))
+      XCTAssertFalse(cursor.containsResponse(id: 0, in: output))
+    }
+    XCTAssertEqual(cursor.examinedLineCount, 4_096)
+    XCTAssertEqual(cursor.decodedLineCount, 0)
+
+    output.append(Data(#"{"message":"embedded \"id\":0"}"#.utf8))
+    output.append(0x0A)
+    XCTAssertFalse(cursor.containsResponse(id: 0, in: output))
+    XCTAssertEqual(cursor.examinedLineCount, 4_097)
+    XCTAssertEqual(cursor.decodedLineCount, 1)
+
+    output.append(Data(#"{"id":0,"result":{}}"#.utf8))
+    output.append(0x0A)
+    XCTAssertTrue(cursor.containsResponse(id: 0, in: output))
+    XCTAssertEqual(cursor.examinedLineCount, 4_098)
+    XCTAssertEqual(cursor.decodedLineCount, 2)
+
+    var escapedKeyCursor = JSONRPCResponseCursor()
+    var escapedKeyResponse = Data(#"{"\u0069d":0,"result":{}}"#.utf8)
+    escapedKeyResponse.append(0x0A)
+    XCTAssertTrue(escapedKeyCursor.containsResponse(id: 0, in: escapedKeyResponse))
+
+    var bufferedCursor = JSONRPCResponseCursor()
+    let bufferedResponses = Data(
+      "{\"id\":0,\"result\":{}}\n{\"id\":2,\"result\":{}}\n".utf8)
+    XCTAssertTrue(bufferedCursor.containsResponse(id: 0, in: bufferedResponses))
+    XCTAssertEqual(bufferedCursor.examinedLineCount, 1)
+    XCTAssertTrue(bufferedCursor.containsResponse(id: 2, in: bufferedResponses))
+    XCTAssertEqual(bufferedCursor.examinedLineCount, 2)
+
+    var fragmentedCursor = JSONRPCResponseCursor()
+    var fragmentedResponse = Data("{\"id\":0".utf8)
+    XCTAssertFalse(fragmentedCursor.containsResponse(id: 0, in: fragmentedResponse))
+    XCTAssertEqual(fragmentedCursor.examinedLineCount, 0)
+    fragmentedResponse.append(Data(",\"result\":{}}\n".utf8))
+    XCTAssertTrue(fragmentedCursor.containsResponse(id: 0, in: fragmentedResponse))
+    XCTAssertEqual(fragmentedCursor.examinedLineCount, 1)
+  }
+
   func testProbeCompletesNormalHandshakeWithBoundedRunner() async throws {
     let fixture = try ExecutableFixture(
       script: """

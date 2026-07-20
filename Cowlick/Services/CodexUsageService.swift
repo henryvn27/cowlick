@@ -120,6 +120,7 @@ struct CodexUsageService: CodexUsageFetching, Sendable {
         maximumOutputSize: maximumResponseSize
       )
       defer { runner.stop() }
+      var responseCursor = JSONRPCResponseCursor()
 
       try runner.write(
         encoded(
@@ -132,11 +133,11 @@ struct CodexUsageService: CodexUsageFetching, Sendable {
               ]
             ],
           ]))
-      try runner.read { containsResponse(id: 0, in: $0) }
+      try runner.read { responseCursor.containsResponse(id: 0, in: $0) }
       try runner.write(encoded(["method": "initialized", "params": [:]]))
       try runner.write(
         encoded(["method": "account/rateLimits/read", "id": 2, "params": [:]]))
-      try runner.read { containsResponse(id: 2, in: $0) }
+      try runner.read { responseCursor.containsResponse(id: 2, in: $0) }
       return try parseResponse(runner.output)
     } catch let error as BoundedProcessRunnerError {
       if error == .responseTooLarge {
@@ -156,15 +157,6 @@ struct CodexUsageService: CodexUsageFetching, Sendable {
     var data = try JSONSerialization.data(withJSONObject: message, options: [.sortedKeys])
     data.append(0x0A)
     return data
-  }
-
-  private static func containsResponse(id: Int, in data: Data) -> Bool {
-    data.split(separator: 0x0A).contains { line in
-      guard let object = try? JSONSerialization.jsonObject(with: Data(line)),
-        let dictionary = object as? [String: Any]
-      else { return false }
-      return dictionary["id"] as? Int == id
-    }
   }
 
   private static func makeLimit(
