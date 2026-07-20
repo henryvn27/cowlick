@@ -11,7 +11,7 @@ These are release-day drafts, not a statement that Cowlick is currently download
 
 Cowlick puts local Codex status and approval actions at the MacBook notch.
 
-Working, multi-session, approval, completed, and interrupted states. Allow once or Deny matches the exact permission request, with safe fallback to Codex. Native Swift, local-first, open source.
+Working, multi-session, approval, and completed states. Allow once or Deny matches the exact permission request, with safe fallback to Codex. A separate Failed presentation is reserved for Cowlick bridge and self-test diagnostics, not inferred Codex task failures. Native Swift, local-first, open source.
 
 It also shows Codex quota pace and time-to-empty, plus separate month-to-date billing for labeled OpenAI and Anthropic organization accounts.
 
@@ -27,7 +27,7 @@ Unofficial community project; not affiliated with or endorsed by OpenAI.
 
 **Show HN: Cowlick – a local macOS notch companion for Codex**
 
-Cowlick is a native SwiftUI/AppKit utility that shows local Codex lifecycle state around the MacBook notch, with a top-center fallback on other Macs. It can return Allow once or Deny for official synchronous permission hooks. Every decision matches a unique request; failures and timeouts return no decision so Codex keeps its prompt. It also shows Codex quota pace and time-to-empty, and can keep multiple labeled OpenAI or Anthropic organization-billing accounts separate. No Cowlick account, analytics, prompt or command extraction or persistence, or cloud backend. MIT licensed.
+Cowlick is a native SwiftUI/AppKit utility that shows local Codex lifecycle state around the MacBook notch, with a top-center fallback on other Macs. It can return Allow once or Deny for official synchronous permission hooks. Every decision matches a unique request; failures and timeouts return no decision so Codex keeps its prompt. It also shows Codex quota pace and time-to-empty, and can keep multiple labeled OpenAI or Anthropic organization-billing accounts separate. No Cowlick account, analytics, transcript parsing, or cloud backend. MIT licensed.
 
 Install: `brew install --cask henryvn27/cowlick/cowlick`
 
@@ -38,7 +38,7 @@ Unofficial community project; not affiliated with or endorsed by OpenAI.
 
 ## Reddit
 
-I built Cowlick, an open-source native macOS companion for Codex. It shows working, approval, completion, interruption, and multiple-session state near the notch. Supported permission hooks can be allowed once or denied there; unavailable or failed IPC always falls back to Codex. It also shows quota pace and estimated time-to-empty, with optional separate month-to-date billing accounts. Prompt previews are off by default.
+I built Cowlick, an open-source native macOS companion for Codex. It shows working, approval, completion, and multiple-session state near the notch. Supported permission hooks can be allowed once or denied there; unavailable or failed IPC always falls back to Codex. Its Failed presentation is for Cowlick bridge and self-test diagnostics because the current Codex hooks do not provide authoritative task-failure events. It also shows quota pace and estimated time-to-empty, with optional separate month-to-date billing accounts. Prompt previews are off by default.
 
 Source: https://github.com/henryvn27/cowlick
 Demo: https://github.com/henryvn27/cowlick/blob/main/Assets/Demo/cowlick-demo.mp4
