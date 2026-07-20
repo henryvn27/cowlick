@@ -127,6 +127,7 @@ private func diagnosticsCopyIssues(in recognizedText: String) -> [String] {
     "launch-asset demo snapshot",
     "not live device data",
     "hook status: installed",
+    "codex hook trust: trusted (demo)",
     "helper installed: true",
     "socket status: listening",
   ] where !text.contains(required) {
@@ -138,6 +139,11 @@ private func diagnosticsCopyIssues(in recognizedText: String) -> [String] {
     "helper installed: false",
   ] where text.contains(stale) {
     issues.append("Assets/Screenshots/diagnostics.png contains stale “\(stale)” copy.")
+  }
+  for unhealthyTrust in ["untrusted", "needs review", "unavailable", "missing", "disabled"]
+  where text.contains("hook trust: \(unhealthyTrust)") {
+    issues.append(
+      "Assets/Screenshots/diagnostics.png contains unhealthy hook trust “\(unhealthyTrust)”.")
   }
   if text.range(
     of: #"(^|\s)macos:\s*(version\s*)?[0-9]"#, options: .regularExpression) != nil
@@ -589,13 +595,15 @@ private func runPressKitSelfCheck() throws {
   }
   let healthyDiagnostics =
     "Launch-asset demo snapshot not live device data Hook status: Installed "
+    + "Codex hook trust: Trusted (demo) "
     + "Helper installed: true Socket status: listening"
   guard diagnosticsCopyIssues(in: healthyDiagnostics).isEmpty else {
     throw ValidationError.selfCheck("healthy launch-asset diagnostics copy was rejected")
   }
   let staleDiagnostics =
     "macOS: Version 26.3.1 Architecture: arm64 Hook status: Codex hooks are not installed "
-    + "Helper installed: false Socket status: listening Display 1: 1512x949"
+    + "Codex hook trust: Needs review Helper installed: false Socket status: listening "
+    + "Display 1: 1512x949"
   guard !diagnosticsCopyIssues(in: staleDiagnostics).isEmpty else {
     throw ValidationError.selfCheck("stale capture-machine diagnostics copy was accepted")
   }

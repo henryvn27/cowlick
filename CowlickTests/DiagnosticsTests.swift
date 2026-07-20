@@ -28,6 +28,7 @@ final class DiagnosticsTests: XCTestCase {
     for required in [
       "Launch-asset demo snapshot — not live device data",
       "Hook status: Installed (demo)",
+      "Codex hook trust: Trusted (demo)",
       "Helper installed: true",
       "Socket status: listening",
       "Display layout: Generic non-notch demo capture",
@@ -38,6 +39,9 @@ final class DiagnosticsTests: XCTestCase {
     for forbidden in [
       "hooks are not installed",
       "hooks are missing or disabled",
+      "Codex hook trust: Untrusted",
+      "Codex hook trust: Needs review",
+      "Codex hook trust: Unavailable",
       "Helper installed: false",
       "macOS: Version",
       "Architecture: arm64",

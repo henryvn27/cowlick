@@ -136,9 +136,12 @@ final class CowlickUITests: XCTestCase {
 
     XCTAssertTrue(report.contains("Launch-asset demo snapshot — not live device data"))
     XCTAssertTrue(report.contains("Hook status: Installed (demo)"))
+    XCTAssertTrue(report.contains("Codex hook trust: Trusted (demo)"))
     XCTAssertTrue(report.contains("Helper installed: true"))
     XCTAssertTrue(report.contains("Socket status: listening"))
     XCTAssertFalse(report.localizedCaseInsensitiveContains("hooks are not installed"))
+    XCTAssertFalse(report.localizedCaseInsensitiveContains("hook trust: untrusted"))
+    XCTAssertFalse(report.localizedCaseInsensitiveContains("hook trust: needs review"))
     XCTAssertFalse(report.contains("macOS: Version"))
     XCTAssertFalse(report.contains("Display 1:"))
   }
