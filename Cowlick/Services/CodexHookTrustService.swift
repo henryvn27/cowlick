@@ -151,6 +151,7 @@ struct CodexHookTrustService: Sendable {
         maximumOutputSize: maximumResponseSize
       )
       defer { runner.stop() }
+      var responseCursor = JSONRPCResponseCursor()
 
       try runner.write(
         encoded(
@@ -163,11 +164,11 @@ struct CodexHookTrustService: Sendable {
               ]
             ],
           ]))
-      try runner.read { containsResponse(id: 0, in: $0) }
+      try runner.read { responseCursor.containsResponse(id: 0, in: $0) }
       try runner.write(encoded(["method": "initialized", "params": [:]]))
       try runner.write(
         encoded(["method": "hooks/list", "id": 2, "params": ["cwds": [workingDirectory]]]))
-      try runner.read { containsResponse(id: 2, in: $0) }
+      try runner.read { responseCursor.containsResponse(id: 2, in: $0) }
       return try parseResponse(
         runner.output, workingDirectory: workingDirectory, expectedCommand: expectedCommand)
     } catch let error as BoundedProcessRunnerError {
@@ -190,14 +191,6 @@ struct CodexHookTrustService: Sendable {
     return data
   }
 
-  private static func containsResponse(id: Int, in data: Data) -> Bool {
-    data.split(separator: 0x0A).contains { line in
-      guard let object = try? JSONSerialization.jsonObject(with: Data(line)),
-        let dictionary = object as? [String: Any]
-      else { return false }
-      return dictionary["id"] as? Int == id
-    }
-  }
 }
 
 private struct HooksListRPCResponse: Decodable {
