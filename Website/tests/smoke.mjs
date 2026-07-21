@@ -91,10 +91,14 @@ try {
     )
   );
 
+  const preview = page.locator("#island-preview");
+  await assertRenderedImageGeometry(preview, { expectedWidth: 170 });
+
   const approval = page.getByRole("button", { name: "Approval" });
   await approval.click();
   assert.equal(await approval.getAttribute("aria-pressed"), "true");
-  assert.equal(await page.locator("#island-preview").getAttribute("src"), "./assets/approval.png");
+  assert.equal(await preview.getAttribute("src"), "./assets/approval.png");
+  await assertRenderedImageGeometry(preview, { expectedWidth: 380 });
 
   const completed = page.getByRole("button", { name: "Completed" });
   await completed.click();
@@ -108,6 +112,7 @@ try {
   await page.setViewportSize({ width: 390, height: 844 });
   await approval.click();
   assert.equal(await approval.getAttribute("aria-pressed"), "true");
+  await assertRenderedImageGeometry(preview);
   assert.equal(
     await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth),
     0
@@ -146,3 +151,32 @@ try {
 }
 
 console.log("Cowlick website browser smoke passed.");
+
+async function assertRenderedImageGeometry(locator, { expectedWidth } = {}) {
+  await locator.evaluate(
+    (image, width) =>
+      new Promise((resolve) => {
+        const ready = () => {
+          const box = image.getBoundingClientRect();
+          if (image.complete && box.width > 0 && (!width || Math.abs(box.width - width) < 1)) {
+            resolve();
+            return;
+          }
+          requestAnimationFrame(ready);
+        };
+        ready();
+      }),
+    expectedWidth
+  );
+
+  const geometry = await locator.evaluate((image) => {
+    const box = image.getBoundingClientRect();
+    return {
+      naturalRatio: image.naturalWidth / image.naturalHeight,
+      renderedRatio: box.width / box.height,
+      width: box.width,
+    };
+  });
+  if (expectedWidth) assert(Math.abs(geometry.width - expectedWidth) < 1);
+  assert(Math.abs(geometry.naturalRatio - geometry.renderedRatio) < 0.02);
+}

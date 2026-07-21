@@ -60,6 +60,7 @@ body {
 img,
 video {
   display: block;
+  height: auto;
   max-width: 100%;
 }
 
@@ -217,15 +218,18 @@ button {
 }
 
 .island-frame img {
-  width: auto;
+  width: min(100%, 23.75rem);
   max-width: 100%;
   max-height: 9.5rem;
   object-fit: contain;
-  transition: max-height 240ms var(--ease-out);
+  transition:
+    width 240ms var(--ease-out),
+    max-height 240ms var(--ease-out);
 }
 
 .island-stage[data-mode="working"] .island-frame img,
 .island-stage[data-mode="completed"] .island-frame img {
+  width: min(100%, 10.625rem);
   max-height: 4.25rem;
 }
 
@@ -424,9 +428,16 @@ button {
 }
 
 .state-proof img {
-  width: 100%;
   border-radius: 1.25rem;
   background: var(--island);
+}
+
+.proof-approval img {
+  width: min(100%, 23.75rem);
+}
+
+.proof-sessions img {
+  width: min(100%, 22.5rem);
 }
 
 .proof-sessions {

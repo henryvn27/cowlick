@@ -1,22 +1,22 @@
 const previews = {
   working: {
     src: "./assets/working.png",
-    width: 340,
-    height: 68,
+    width: 170,
+    height: 34,
     alt: "Cowlick showing the ActivityPilot project in its working state",
     caption: "Working. Quietly present.",
   },
   approval: {
     src: "./assets/approval.png",
-    width: 760,
-    height: 232,
+    width: 380,
+    height: 116,
     alt: "Cowlick showing a request-matched Bash approval with explicit Deny and Allow once actions",
     caption: "Approval. Enough context to decide.",
   },
   completed: {
     src: "./assets/completed.png",
-    width: 340,
-    height: 68,
+    width: 170,
+    height: 34,
     alt: "Cowlick showing the ActivityPilot project as completed",
     caption: "Completed. Then out of the way.",
   },
