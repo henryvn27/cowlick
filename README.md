@@ -1,12 +1,14 @@
 <p align="center"><img src="Assets/AppIcon/cowlick-icon.svg" width="112" alt="Cowlick icon"></p>
 <h1 align="center">Cowlick</h1>
-<p align="center"><strong>Live Codex status, safe approvals, and quota pace at the MacBook notch.</strong></p>
-<p align="center"><a href="https://henryvn27.github.io/cowlick/">Website</a> · <a href="#install-from-source">Install from source</a> · <a href="docs/security.md">Safety</a> · <a href="docs/privacy.md">Privacy</a></p>
+<p align="center"><strong>Codex status and safe approvals at the MacBook notch. Quota planning in the menu bar.</strong></p>
+<p align="center"><a href="https://henryvanness.com/Cowlick">Website</a> · <a href="#install-from-source">Install from source</a> · <a href="docs/security.md">Safety</a> · <a href="docs/privacy.md">Privacy</a></p>
 <p align="center">
   <a href="https://github.com/henryvn27/cowlick/actions/workflows/ci.yml"><img alt="CI status" src="https://github.com/henryvn27/cowlick/actions/workflows/ci.yml/badge.svg?branch=main"></a>
 </p>
 
 ![Cowlick emerging from the top edge with a request-matched approval](Assets/Screenshots/hero.png)
+
+_Illustrative top-edge framing using a 2× non-notch display capture. Physical-notch evidence will be recaptured from the final signed candidate before release._
 
 [Watch the 10-second product demo](Assets/Demo/cowlick-demo.mp4) · [Open the press kit](Assets/PressKit/README.md)
 
@@ -34,6 +36,8 @@ Allow is never the default action. Every decision is matched to the exact pendin
 ![Cowlick showing remaining quota, predicted time to empty, API-price equivalent, and an attributed third-party reset forecast](Assets/Screenshots/usage.png)
 
 The pace marker compares current use with an even spend through reset. Cowlick shows time to empty when the observed pace would exhaust quota early. API-price equivalents, organization billing, and third-party reset forecasts remain clearly labeled and separate from subscription usage.
+
+The image uses deterministic demo fixture data captured on July 20, 2026. Its “Will Codex Reset?” value is third-party data shown for attribution testing; it is not Cowlick data or a Cowlick estimate.
 
 ## Install from source
 

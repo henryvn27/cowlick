@@ -49,7 +49,7 @@ Unofficial community project; not affiliated with or endorsed by OpenAI.
 
 ## Product Hunt
 
-Cowlick is a native, local-first macOS status companion for OpenAI Codex. It keeps active projects, approvals, completion, local bridge diagnostics, and quota pace visible at the MacBook notch without becoming another client. Decisions are explicit, request-matched, and fail safely back to Codex. Optional organization-billing accounts stay separate and local. Open source, no Cowlick account, no analytics, no backend.
+Cowlick is a native, local-first macOS status companion for OpenAI Codex. It keeps active projects, approvals, completion, and local bridge diagnostics visible at the MacBook notch, with quota planning in the menu bar, without becoming another client. Decisions are explicit, request-matched, and fail safely back to Codex. Optional organization-billing accounts stay separate and local. Open source, no Cowlick account, no analytics, no backend.
 
 Install with Homebrew or download the signed build from GitHub Releases.
 
