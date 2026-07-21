@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 // Aesthetic direction: quiet, physical, and attached to the Mac rather than floating above it.
@@ -8,6 +9,7 @@ import SwiftUI
 // Motion: restrained spring transitions, disabled for Reduce Motion.
 enum NotchTheme {
   static let island = Color.black
+  static let floatingSurface = Color(nsColor: .windowBackgroundColor)
   static let islandRaised = Color(white: 0.075)
   static let accent = Color(red: 0.79, green: 0.78, blue: 0.74)
   static let success = Color(red: 0.53, green: 0.76, blue: 0.62)
@@ -16,7 +18,7 @@ enum NotchTheme {
   static let hairline = Color.white.opacity(0.12)
 
   static let compactSize = CGSize(width: 170, height: 34)
-  static let maximumApprovalSize = CGSize(width: 380, height: 140)
+  static let maximumApprovalSize = CGSize(width: 380, height: 170)
   static let attachedWingWidth: CGFloat = 72
   static let compactRadius: CGFloat = 14
   static let expandedBottomRadius: CGFloat = 22
@@ -69,6 +71,7 @@ enum NotchTheme {
 
   static func approvalSize(for request: ApprovalRequest) -> CGSize {
     var height: CGFloat = 96
+    if request.projectContext != nil { height += 30 }
     if request.reasonPreview.count > 64 { height += 14 }
     if request.showsDistinctOperation {
       height += 20

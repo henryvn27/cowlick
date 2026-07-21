@@ -23,6 +23,11 @@ done
 grep -Fq 'requires_signed_feed' "$script_dir/release_preflight.sh"
 grep -Fq 'export method must be developer-id' "$script_dir/release_preflight.sh"
 grep -Fq 'CHANGELOG.md has no release section' "$script_dir/release_preflight.sh"
+grep -Fq 'app and helper must share one positive CURRENT_PROJECT_VERSION' \
+  "$script_dir/release_common.sh"
+grep -Fq 'Sparkle Downloader.xpc' "$script_dir/release_common.sh"
+grep -Fq 'Sparkle Installer.xpc' "$script_dir/release_common.sh"
+grep -Fq '"$script_dir/release_notes.sh" "$version"' "$script_dir/generate_appcast.sh"
 
 release_notes="$temporary_directory/release-notes.md"
 "$script_dir/release_notes.sh" 1.0.0 > "$release_notes"
@@ -542,6 +547,11 @@ for command_name in pgrep open xcodegen; do
   print -n -- '#!/bin/zsh\nexit 0\n' > "$wrapper_fake_bin/$command_name"
   chmod 755 "$wrapper_fake_bin/$command_name"
 done
+print -r -- '#!/bin/zsh' > "$wrapper_fake_bin/git"
+print -r -- '[[ "${COWLICK_TEST_GIT_DIRTY:-}" == 1 ]] && print " M Cowlick/App/AppServices.swift"' \
+  >> "$wrapper_fake_bin/git"
+print -r -- 'exit 0' >> "$wrapper_fake_bin/git"
+chmod 755 "$wrapper_fake_bin/git"
 rollback_remove_command="$wrapper_fake_bin/rollback-remove"
 rollback_move_command="$wrapper_fake_bin/rollback-move"
 print -r -- '#!/bin/zsh
@@ -602,10 +612,13 @@ done
 [[ -n "$derived_data" ]]
 [[ "$jobs" == "${COWLICK_TEST_EXPECTED_XCODE_JOBS:-2}" ]]
 helper="$derived_data/Build/Products/Release/Cowlick.app/Contents/Helpers/cowlick-hook"
+source_identity="$derived_data/Build/Products/Release/Cowlick.app/Contents/Resources/cowlick-source-commit.txt"
 mkdir -p "${helper:h}"
+mkdir -p "${source_identity:h}"
 print -r -- "#!/bin/zsh" > "$helper"
 print -r -- "# ${COWLICK_TEST_HELPER_MARKER:-wrapper-helper}" >> "$helper"
 print -r -- "exit 0" >> "$helper"
+print -r -- '0123456789abcdef0123456789abcdef01234567' > "$source_identity"
 chmod 755 "$helper"
 if [[ -n "${COWLICK_TEST_XCODEBUILD_BARRIER_DIRECTORY:-}" ]]; then
   : > "$COWLICK_TEST_XCODEBUILD_BARRIER_DIRECTORY/reached"
@@ -639,6 +652,21 @@ for invalid_arguments in '--unknown' 'extra' '--help extra'; do
   fi
   [[ ! -e "$wrapper_argument_home" ]]
 done
+
+wrapper_dirty_home="$temporary_directory/wrapper-dirty-home"
+wrapper_dirty_output="$temporary_directory/wrapper-dirty-output"
+mkdir -p "$wrapper_dirty_home/Applications/Cowlick.app"
+print -n -- 'existing-app' > "$wrapper_dirty_home/Applications/Cowlick.app/marker"
+if env PATH="$wrapper_fake_bin:$PATH" HOME="$wrapper_dirty_home" \
+  COWLICK_HOME="$wrapper_dirty_home" TMPDIR="$temporary_directory" \
+  COWLICK_TEST_GIT_DIRTY=1 "$wrapper_scripts/install_local.sh" \
+  > "$wrapper_dirty_output" 2>&1; then
+  print -u2 "dirty source checkout unexpectedly allowed a local install"
+  exit 1
+fi
+grep -Fq 'Refusing to install Cowlick from a dirty checkout.' "$wrapper_dirty_output"
+grep -Fq 'existing-app' "$wrapper_dirty_home/Applications/Cowlick.app/marker"
+[[ ! -e "$wrapper_dirty_home/Library/Application Support/Cowlick/bin/cowlick-hook" ]]
 
 assert_invalid_wrapper_hooks_roll_back() {
   local name="$1"
@@ -710,7 +738,7 @@ assert_local_install_removed() {
   [[ ! -e "$home/Applications/Cowlick.app" ]]
   [[ ! -e "$home/.local/bin/cowlick-hook" && ! -L "$home/.local/bin/cowlick-hook" ]]
   [[ ! -e "$home/Library/Application Support/Cowlick/bin/cowlick-hook" ]]
-  ! grep -Fq 'cowlick-hook' "$home/.codex/hooks.json"
+  [[ ! -e "$home/.codex/hooks.json" ]] || ! grep -Fq 'cowlick-hook' "$home/.codex/hooks.json"
 }
 
 wrapper_install_first_home="$temporary_directory/wrapper-install-first-home"
@@ -1052,6 +1080,10 @@ grep -Fq -- '-derivedDataPath "$derived_data"' "$package_script"
 grep -Fq -- '-jobs "$xcode_jobs"' "$package_script"
 grep -Fq -- '-jobs "$xcode_jobs"' "$script_dir/build_and_run.sh"
 grep -Fq -- '-jobs "$xcode_jobs"' "$script_dir/install_local.sh"
+grep -Fq -- 'ARCHS="$cowlick_build_architecture"' "$script_dir/build_and_run.sh"
+grep -Fq -- 'ARCHS="$cowlick_build_architecture"' "$script_dir/install_local.sh"
+grep -Fq -- 'ONLY_ACTIVE_ARCH=YES' "$script_dir/build_and_run.sh"
+grep -Fq -- 'ONLY_ACTIVE_ARCH=YES' "$script_dir/install_local.sh"
 [[ "$(grep -Fc -- '-jobs "$COWLICK_XCODE_JOBS"' "$ci_workflow")" == 4 ]]
 grep -Fq '"$script_dir/verify_release_artifacts.sh" "$version" "$output"' \
   "$create_release_script"

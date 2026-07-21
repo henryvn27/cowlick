@@ -30,6 +30,15 @@ enum NotchPanelInteractionPolicy {
   }
 }
 
+enum ApprovalAccessibilityPresentation {
+  static func announcement(for request: ApprovalRequest) -> String {
+    let context = [request.displayName, request.projectContext, request.toolName]
+      .compactMap { $0 }
+      .joined(separator: ", ")
+    return "Approval requested for \(context)"
+  }
+}
+
 @MainActor
 final class NotchPanelController {
   private let store: SessionStore
@@ -37,6 +46,7 @@ final class NotchPanelController {
   private let presentation = NotchPanelPresentation()
   private var observers: [NSObjectProtocol] = []
   private var presentationUpdateScheduled = false
+  private var lastAnnouncedApprovalID: UUID?
   private(set) var currentGeometry: ResolvedNotchGeometry?
 
   init(store: SessionStore) {
@@ -75,6 +85,7 @@ final class NotchPanelController {
   }
 
   func updatePresentation() {
+    announceCurrentApprovalIfNeeded()
     let interactiveApproval = store.currentApproval != nil && store.isExpanded
 
     let baseSize: CGSize
@@ -172,6 +183,13 @@ final class NotchPanelController {
     schedulePresentationUpdate()
   }
 
+  func openCurrentApproval() {
+    guard store.currentApproval != nil else { return }
+    store.expand()
+    updatePresentation()
+    activateApprovalForUserInteraction()
+  }
+
   private func activateApprovalForUserInteraction() {
     let isApproval = store.currentApproval != nil && store.isExpanded
     guard
@@ -184,6 +202,18 @@ final class NotchPanelController {
     panel.styleMask.remove(.nonactivatingPanel)
     NSApp.activate(ignoringOtherApps: true)
     panel.makeKeyAndOrderFront(nil)
+  }
+
+  private func announceCurrentApprovalIfNeeded() {
+    guard let approval = store.currentApproval else {
+      lastAnnouncedApprovalID = nil
+      return
+    }
+    guard lastAnnouncedApprovalID != approval.id else { return }
+    lastAnnouncedApprovalID = approval.id
+    AccessibilityNotification.Announcement(
+      ApprovalAccessibilityPresentation.announcement(for: approval)
+    ).post()
   }
 
   private func schedulePresentationUpdate() {

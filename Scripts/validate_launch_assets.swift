@@ -178,10 +178,11 @@ private func validateImages() {
     ImageExpectation(
       path: "Assets/Screenshots/hero.png", exactSize: CGSize(width: 1_600, height: 900),
       minimumSize: nil,
-      requiredText: ["Cowlick", "Codex lives", "Local by default", "non-sensitive demo data"]),
+      requiredText: ["Cowlick", "Codex lives", "Local by default", "non-notch capture"]),
     ImageExpectation(
       path: "Assets/Social/github-social-preview.png", exactSize: CGSize(width: 1_280, height: 640),
-      minimumSize: nil, requiredText: ["Cowlick", "Codex lives", "Local by default"]),
+      minimumSize: nil,
+      requiredText: ["Cowlick", "Codex lives", "Local by default", "non-notch capture"]),
     ImageExpectation(
       path: "Assets/Social/x-launch.png", exactSize: CGSize(width: 1_600, height: 900),
       minimumSize: nil, requiredText: ["Cowlick", "Working", "Approval", "Done"]),
@@ -207,7 +208,7 @@ private func validateImages() {
     ImageExpectation(
       path: "Assets/Screenshots/settings.png", exactSize: nil,
       minimumSize: CGSize(width: 1_100, height: 850),
-      requiredText: ["General", "Integration", "Quota", "Accounts", "Signals"]),
+      requiredText: ["General", "Integration", "Quota", "Accounts", "System"]),
     ImageExpectation(
       path: "Assets/Screenshots/onboarding.png", exactSize: nil,
       minimumSize: CGSize(width: 1_000, height: 800), requiredText: ["Cowlick", "Step 1 of 7"]),

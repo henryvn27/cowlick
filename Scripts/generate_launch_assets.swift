@@ -71,7 +71,7 @@ private struct LaunchAssetGenerator {
         in: CGRect(x: 84, y: 222, width: 820, height: 230),
         font: .systemFont(ofSize: 92, weight: .bold), color: paperInk, lineHeight: 0.88)
       drawText(
-        "Live Codex status, safe approvals,\nand quota pace. Native on macOS.\nLocal by default.",
+        "Status and safe approvals at the notch.\nQuota planning in the menu bar.\nLocal by default.",
         in: CGRect(x: 1_050, y: 262, width: 440, height: 126),
         font: .systemFont(ofSize: 25, weight: .regular),
         color: paperMuted, lineHeight: 1.28)
@@ -80,7 +80,7 @@ private struct LaunchAssetGenerator {
         font: .monospacedSystemFont(ofSize: 18, weight: .regular),
         color: paperMuted)
       drawText(
-        "Current app · non-sensitive demo data",
+        "Illustrative top-edge framing · 2× non-notch capture",
         in: CGRect(x: 1_100, y: 78, width: 390, height: 24),
         font: .systemFont(ofSize: 14, weight: .medium),
         color: paperMuted.withAlphaComponent(0.74), alignment: .right)
@@ -119,13 +119,18 @@ private struct LaunchAssetGenerator {
         in: CGRect(x: 52, y: 120, width: 680, height: 184),
         font: .systemFont(ofSize: 76, weight: .bold), color: paperInk, lineHeight: 0.88)
       drawText(
-        "Live Codex status, safe approvals,\nand quota pace. Native on macOS.\nLocal by default.",
+        "Status and safe approvals at the notch.\nQuota planning in the menu bar.\nLocal by default.",
         in: CGRect(x: 842, y: 158, width: 368, height: 108),
         font: .systemFont(ofSize: 21, weight: .regular),
         color: paperMuted, lineHeight: 1.28)
       drawText(
         "github.com/henryvn27/cowlick", in: CGRect(x: 54, y: 52, width: 420, height: 28),
         font: .monospacedSystemFont(ofSize: 15, weight: .regular), color: paperMuted)
+      drawText(
+        "Illustrative framing · 2× non-notch capture",
+        in: CGRect(x: 770, y: 52, width: 440, height: 24),
+        font: .systemFont(ofSize: 12, weight: .medium),
+        color: paperMuted.withAlphaComponent(0.74), alignment: .right)
     }
     try writePNG(bitmap, to: destination)
   }
