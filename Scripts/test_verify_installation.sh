@@ -21,6 +21,9 @@ chmod 755 "$fake_bin/codesign"
 print -r -- '#!/bin/zsh' > "$fake_bin/swift"
 print -r -- 'print healthy' >> "$fake_bin/swift"
 chmod 755 "$fake_bin/swift"
+print -r -- '#!/bin/zsh' > "$fake_bin/ps"
+print -r -- 'print -r -- "${COWLICK_TEST_PROCESS_PATH:-}"' >> "$fake_bin/ps"
+chmod 755 "$fake_bin/ps"
 
 print -r -- '#!/bin/zsh' > "$helper"
 print -r -- 'case "${1:-}" in' >> "$helper"
@@ -47,8 +50,10 @@ print -r -- '<plist version="1.0"><dict><key>CFBundleIdentifier</key><string>com
 env PATH="$fake_bin:$PATH" HOME="$test_home" \
   "$script_dir/verify_installation.sh" --app "$app" --development >/dev/null
 env PATH="$fake_bin:$PATH" HOME="$test_home" \
+  COWLICK_TEST_PROCESS_PATH="$app/Contents/MacOS/Cowlick" \
   "$script_dir/verify_installation.sh" --app "$app" --development --installed \
-    --source-commit "$source_commit" >/dev/null
+    --source-commit "$source_commit" \
+    --expected-executable "$app/Contents/MacOS/Cowlick" >/dev/null
 
 for mode in unhealthy false-success malformed; do
   if env PATH="$fake_bin:$PATH" HOME="$test_home" COWLICK_TEST_PING_MODE="$mode" \
@@ -57,6 +62,15 @@ for mode in unhealthy false-success malformed; do
     exit 1
   fi
 done
+
+if env PATH="$fake_bin:$PATH" HOME="$test_home" \
+  COWLICK_TEST_PROCESS_PATH="$app/Contents/MacOS/Cowlick-old" \
+  "$script_dir/verify_installation.sh" --app "$app" --development \
+    --source-commit "$source_commit" \
+    --expected-executable "$app/Contents/MacOS/Cowlick" >/dev/null 2>&1; then
+  print -u2 "verify_installation accepted an executable-path prefix collision"
+  exit 1
+fi
 
 if env PATH="$fake_bin:$PATH" HOME="$test_home" \
   "$script_dir/verify_installation.sh" --app "$app" --development \

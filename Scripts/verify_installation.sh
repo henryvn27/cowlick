@@ -70,8 +70,8 @@ if [[ -x "$helper" ]]; then
       print -u2 "Healthy bridge did not report a valid process identifier."
       exit 1
     }
-    bridge_command="$(ps -p "$bridge_pid" -o command= 2>/dev/null || true)"
-    [[ "$bridge_command" == "$expected_executable"* ]] || {
+    bridge_executable="$(ps -p "$bridge_pid" -o comm= 2>/dev/null || true)"
+    [[ "$bridge_executable" == "$expected_executable" ]] || {
       print -u2 "Healthy bridge belongs to a different Cowlick executable."
       exit 1
     }
