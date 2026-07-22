@@ -253,6 +253,7 @@ final class NotchGeometryTests: XCTestCase {
       size(sessions: 3, officialUsage: true, apiCost: true, forecast: true),
       CGSize(width: 332, height: 358)
     )
+    XCTAssertEqual(NotchTheme.maximumExpandedSurfaceHeight, 400)
   }
 
   func testAnimatedSurfacePathKeepsItsTopEdgeFixed() {

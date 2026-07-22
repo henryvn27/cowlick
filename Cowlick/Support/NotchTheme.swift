@@ -21,6 +21,7 @@ enum NotchTheme {
   static let maximumApprovalSize = CGSize(width: 380, height: 170)
   static let attachedWingWidth: CGFloat = 42
   static let expandedInformationWidth: CGFloat = 332
+  static let maximumExpandedSurfaceHeight: CGFloat = 400
   static let compactRadius: CGFloat = 14
   static let expandedBottomRadius: CGFloat = 22
   static let floatingRadius: CGFloat = 12

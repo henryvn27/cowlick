@@ -187,10 +187,14 @@ final class NotchPanelController {
     } else {
       unboundedContentSize = baseSize
     }
-    let maximumPanelHeight =
+    let screenMaximumPanelHeight =
       notchMetrics == nil
       ? max(NotchTheme.actionBarHeight, screen.visibleFrame.height - 12)
       : max(NotchTheme.actionBarHeight, screen.frame.height - 24)
+    let maximumPanelHeight =
+      mode == .sessions
+      ? min(screenMaximumPanelHeight, NotchTheme.maximumExpandedSurfaceHeight)
+      : screenMaximumPanelHeight
     let contentSize = CGSize(
       width: unboundedContentSize.width,
       height: min(unboundedContentSize.height, maximumPanelHeight)
