@@ -133,6 +133,7 @@ final class WindowCoordinator {
   private func present(_ window: NSWindow) {
     NSApp.activate(ignoringOtherApps: true)
     window.makeKeyAndOrderFront(nil)
+    window.orderFrontRegardless()
   }
 }
 
