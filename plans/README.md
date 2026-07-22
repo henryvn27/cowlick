@@ -11,6 +11,7 @@
 | [007](007-adopt-ping-island-surface-engine.md) | Adopt Ping Island's fixed-shell notch engine | HIGH | DONE — motion verified |
 | [008](008-tighten-notch-motion.md) | Tighten the notch morph | HIGH | DONE — motion verified |
 | [009](009-show-usage-in-notch.md) | Show Codex usage in the compact notch | MEDIUM | DONE — visual verified |
+| [010](010-make-compact-notch-quiet.md) | Make the compact notch quiet and hover-revealed | HIGH | TODO |
 
 Plans 001 and 002 record the first motion pass at `b009140`. The July 21 audit at `a937b39` found that pass insufficient: presentation ownership is still duplicated, the shell and content still run on separate timelines, and the threshold gesture is not direct manipulation. Plans 003–006 supersede the earlier motion assumptions without rewriting their historical record.
 
@@ -28,3 +29,7 @@ Plan 007 supersedes the retained-shell conclusion in plans 004 and 005. The curr
 Plans 008 and 009 are the July 22 polish follow-up. Execute 008 first so the existing fixed-shell
 motion is settled, then 009 so the usage label is judged against the final compact motion and
 spacing. They share no implementation dependency beyond the current plan-007 surface.
+
+Plan 010 is the user-directed interaction revision after physical use of plans 008 and 009. It
+supersedes plan 002's scroll-to-expand behavior and the session-first compact layout from plan 009,
+while preserving the fixed bounded host, quota data path, click access, and approval behavior.
