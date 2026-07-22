@@ -36,6 +36,16 @@ struct ExpandedIslandView: View {
         VStack(alignment: .leading, spacing: 0) {
           activityHeader
 
+          if !store.sessionSummaries.isEmpty {
+            Divider()
+            SessionListView(
+              sessions: store.sessionSummaries,
+              showPromptPreviews: store.settings.showPromptPreviews,
+              showResultPreviews: store.settings.showResultPreviews,
+              isAttached: isAttached
+            )
+          }
+
           if hookTrust.state.requiresIntegrationAttention {
             Divider()
             CodexIntegrationAttentionView(
@@ -59,17 +69,6 @@ struct ExpandedIslandView: View {
           if !services.providerAccountsController.accounts.isEmpty {
             Divider()
             ProviderBillingSectionView(services: services)
-          }
-
-          if !store.sessionSummaries.isEmpty {
-            Divider()
-            SessionListView(
-              sessions: store.sessionSummaries,
-              showPromptPreviews: store.settings.showPromptPreviews,
-              showResultPreviews: store.settings.showResultPreviews,
-              isAttached: isAttached,
-              scrollsInternally: false
-            )
           }
         }
       }

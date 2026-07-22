@@ -576,6 +576,7 @@ struct ProviderBillingSectionView: View {
           .contentShape(Rectangle())
         }
         .menuStyle(.borderlessButton)
+        .accessibilityIdentifier("provider-billing-account")
         .accessibilityLabel(billingAccessibilityLabel(for: selected))
 
         if let error = services.providerBillingStore.errors[selected.id] {
