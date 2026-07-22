@@ -144,11 +144,11 @@ final class NotchGeometryTests: XCTestCase {
   func testCollapsedAccessibilityHintMatchesItsAction() {
     XCTAssertEqual(
       CollapsedIslandView.accessibilityHint(for: .completed(message: nil)),
-      "Dismiss the completed status"
+      "Show recent activity and dismiss the completed indicator"
     )
     XCTAssertEqual(
       CollapsedIslandView.accessibilityHint(for: .working(prompt: nil)),
-      "Expand the status island"
+      "Show recent activity"
     )
     let session = AgentSession(
       id: "session",
@@ -165,6 +165,15 @@ final class NotchGeometryTests: XCTestCase {
         session: session, activeCount: 3, activeSubagentCount: 2),
       "Scoutly, Working, 3 active sessions, 2 active agents"
     )
+  }
+
+  func testCompactCompletionIndicatorOnlyRepresentsCompletedStatus() {
+    XCTAssertTrue(
+      CollapsedIslandView.showsCompletionIndicator(for: .completed(message: nil)))
+    XCTAssertFalse(CollapsedIslandView.showsCompletionIndicator(for: .working(prompt: nil)))
+    XCTAssertFalse(CollapsedIslandView.showsCompletionIndicator(for: .failed(message: nil)))
+    XCTAssertFalse(CollapsedIslandView.showsCompletionIndicator(for: .idle))
+    XCTAssertFalse(CollapsedIslandView.showsCompletionIndicator(for: nil))
   }
 
   func testCompactUsageFormattingAndAccessibilityRespectAvailability() {
@@ -186,9 +195,12 @@ final class NotchGeometryTests: XCTestCase {
     )
   }
 
-  func testNotchMotionUsesSubtleHoverFeedbackAndPromptCollapse() {
+  func testNotchMotionUsesPromptHoverAndInterruptibleSurfaceTokens() {
     XCTAssertEqual(NotchTheme.hoverFeedbackDuration, 0.12)
+    XCTAssertEqual(NotchTheme.hoverOpenDelay, 0.08)
     XCTAssertEqual(NotchTheme.hoverCloseDelay, 0.16)
+    XCTAssertEqual(NotchTheme.surfaceOpenDuration, 0.28)
+    XCTAssertEqual(NotchTheme.surfaceCloseDuration, 0.24)
     XCTAssertEqual(NotchTheme.reducedMotionFadeDuration, 0.12)
   }
 

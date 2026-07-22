@@ -102,22 +102,6 @@ final class NotchPanelController {
         usageStore: usageStore,
         presentation: presentation
       ))
-    hostingView.canInterpretSwipe = { [weak store, weak presentation] in
-      guard let store, let presentation else { return false }
-      return presentation.isAttached && store.currentApproval == nil
-    }
-    hostingView.handleSwipeAction = { [weak store] action in
-      guard let store, store.currentApproval == nil else { return false }
-      switch action {
-      case .expand:
-        guard !store.isExpanded, !store.sessionSummaries.isEmpty else { return false }
-        store.expand()
-      case .collapse:
-        guard store.isExpanded else { return false }
-        store.collapse()
-      }
-      return true
-    }
     hostingView.handlePointerDown = { [weak self] in
       self?.activateApprovalForUserInteraction()
     }

@@ -25,14 +25,15 @@ enum NotchTheme {
   static let floatingRadius: CGFloat = 12
   static let reducedMotionFadeDuration = 0.12
   static let hoverFeedbackDuration = 0.12
+  static let hoverOpenDelay = 0.08
   static let hoverCloseDelay = 0.16
+  static let surfaceOpenDuration = 0.28
+  static let surfaceCloseDuration = 0.24
   // SwiftUI animates the complete notch surface inside an AppKit panel whose
   // frame always matches the visible surface, so transparent space cannot
   // intercept clicks in other apps.
-  static let surfaceOpen = Animation.spring(
-    response: 0.42, dampingFraction: 0.8, blendDuration: 0)
-  static let surfaceClose = Animation.spring(
-    response: 0.45, dampingFraction: 1.0, blendDuration: 0)
+  static let surfaceOpen = Animation.spring(duration: surfaceOpenDuration, bounce: 0.08)
+  static let surfaceClose = Animation.spring(duration: surfaceCloseDuration, bounce: 0)
   static let statusChange = Animation.timingCurve(
     0.23, 1.00, 0.32, 1.00, duration: 0.16)
   static let contentReveal = Animation.timingCurve(

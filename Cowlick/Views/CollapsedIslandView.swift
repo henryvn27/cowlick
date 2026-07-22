@@ -2,6 +2,7 @@ import SwiftUI
 
 struct CollapsedIslandView: View {
   let session: AgentSession?
+  let completionStatus: AgentStatus?
   let usageStore: UsageStore
   let activeCount: Int
   let activeSubagentCount: Int
@@ -9,7 +10,6 @@ struct CollapsedIslandView: View {
   let isAttached: Bool
   let height: CGFloat
   let reducedAnimation: Bool
-  let namespace: Namespace.ID
   let action: () -> Void
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @State private var isHovering = false
@@ -22,6 +22,10 @@ struct CollapsedIslandView: View {
         }
         .buttonStyle(IslandPressButtonStyle(reduceMotion: motionReduced))
         .accessibilityHint(Self.accessibilityHint(for: session.presentationStatus))
+        .accessibilityIdentifier(
+          showsCompletionIndicator
+            ? "compact-completion-indicator" : "compact-notch-button"
+        )
         .onHover { isHovering = $0 }
         .animation(
           motionReduced ? nil : .easeOut(duration: NotchTheme.hoverFeedbackDuration),
@@ -33,6 +37,7 @@ struct CollapsedIslandView: View {
         }
         .buttonStyle(IslandPressButtonStyle(reduceMotion: motionReduced))
         .accessibilityHint("Open Cowlick controls")
+        .accessibilityIdentifier("compact-notch-button")
         .onHover { isHovering = $0 }
         .animation(
           motionReduced ? nil : .easeOut(duration: NotchTheme.hoverFeedbackDuration),
@@ -46,23 +51,20 @@ struct CollapsedIslandView: View {
         activeCount: activeCount,
         activeSubagentCount: activeSubagentCount,
         usageLabel: usageAccessibilityLabel,
-        secondaryUsageLabel: session == nil ? secondaryUsageValue?.accessibilityLabel : nil
+        secondaryUsageLabel: showsCompletionIndicator
+          ? nil : secondaryUsageValue?.accessibilityLabel
       )
     )
   }
 
   private func header(session: AgentSession?, showsHoverFeedback: Bool) -> some View {
     IslandHeaderView(
-      session: session,
       usageText: usageText,
       secondaryUsageValue: secondaryUsageValue,
-      usageAccessibilityLabel: usageAccessibilityLabel,
-      activeCount: activeCount,
-      activeSubagentCount: activeSubagentCount,
+      showsCompletionIndicator: showsCompletionIndicator,
       notchGapWidth: notchGapWidth,
       isAttached: isAttached,
       reducedAnimation: reducedAnimation,
-      namespace: namespace
     )
     .frame(height: height)
     .frame(maxWidth: .infinity)
@@ -71,8 +73,15 @@ struct CollapsedIslandView: View {
   }
 
   static func accessibilityHint(for status: AgentStatus) -> String {
-    if case .completed = status { return "Dismiss the completed status" }
-    return "Expand the status island"
+    if case .completed = status {
+      return "Show recent activity and dismiss the completed indicator"
+    }
+    return "Show recent activity"
+  }
+
+  static func showsCompletionIndicator(for status: AgentStatus?) -> Bool {
+    guard let status, case .completed = status else { return false }
+    return true
   }
 
   static func accessibilityLabel(
@@ -127,6 +136,10 @@ struct CollapsedIslandView: View {
   private var usageAccessibilityLabel: String? {
     guard usageText != nil else { return nil }
     return usageStore.primaryMetricAccessibilityLabel
+  }
+
+  private var showsCompletionIndicator: Bool {
+    Self.showsCompletionIndicator(for: completionStatus)
   }
 }
 

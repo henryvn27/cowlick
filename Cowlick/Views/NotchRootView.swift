@@ -5,14 +5,13 @@ struct NotchRootView: View {
   let usageStore: UsageStore
   let presentation: NotchPanelPresentation
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
-  @Namespace private var islandMorph
-  @State private var collapseIntent: Task<Void, Never>?
+  @State private var hoverIntent: Task<Void, Never>?
   @GestureState private var pullDistance: CGFloat = 0
 
   var body: some View {
     notchSurface
       .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-      .onDisappear { collapseIntent?.cancel() }
+      .onDisappear { hoverIntent?.cancel() }
       .onExitCommand { store.collapse() }
       .preferredColorScheme(presentation.isAttached ? .dark : nil)
   }
@@ -29,6 +28,7 @@ struct NotchRootView: View {
         if let session = store.displaySession ?? store.sessionSummaries.first {
           CollapsedIslandView(
             session: session,
+            completionStatus: store.displaySession?.presentationStatus,
             usageStore: usageStore,
             activeCount: store.activeSessionCount,
             activeSubagentCount: store.activeSubagentCount,
@@ -36,7 +36,6 @@ struct NotchRootView: View {
             isAttached: presentation.isAttached,
             height: compactHeaderHeight,
             reducedAnimation: store.settings.reducedAnimation,
-            namespace: islandMorph,
             action: handleHeaderAction
           )
           .frame(
@@ -47,6 +46,7 @@ struct NotchRootView: View {
         } else if hasUsage {
           CollapsedIslandView(
             session: nil,
+            completionStatus: nil,
             usageStore: usageStore,
             activeCount: 0,
             activeSubagentCount: 0,
@@ -54,7 +54,6 @@ struct NotchRootView: View {
             isAttached: presentation.isAttached,
             height: compactHeaderHeight,
             reducedAnimation: store.settings.reducedAnimation,
-            namespace: islandMorph,
             action: handleHeaderAction
           )
           .frame(
@@ -171,18 +170,30 @@ struct NotchRootView: View {
   }
 
   private func handleHover(_ isHovering: Bool) {
-    collapseIntent?.cancel()
+    hoverIntent?.cancel()
     #if DEBUG
       guard !CommandLine.arguments.contains("--disable-auto-hover") else { return }
     #endif
-    guard !isHovering, presentation.isAttached, store.currentApproval == nil, isExpanded else {
-      return
+    guard presentation.isAttached, store.currentApproval == nil else { return }
+
+    let delay: TimeInterval
+    if isHovering {
+      guard !isExpanded, !store.sessionSummaries.isEmpty else { return }
+      delay = NotchTheme.hoverOpenDelay
+    } else {
+      guard isExpanded else { return }
+      delay = NotchTheme.hoverCloseDelay
     }
 
-    collapseIntent = Task { @MainActor in
-      try? await Task.sleep(for: .seconds(NotchTheme.hoverCloseDelay))
+    hoverIntent = Task { @MainActor in
+      try? await Task.sleep(for: .seconds(delay))
       guard !Task.isCancelled else { return }
-      store.collapse()
+      if isHovering {
+        guard !store.isExpanded, !store.sessionSummaries.isEmpty else { return }
+        store.expand()
+      } else if store.isExpanded {
+        store.collapse()
+      }
     }
   }
 
@@ -193,10 +204,16 @@ struct NotchRootView: View {
   private func handleHeaderAction() {
     if isExpanded {
       store.collapse()
-    } else if let session = store.displaySession,
-      case .completed = session.presentationStatus
+      return
+    }
+
+    if let session = store.displaySession,
+      CollapsedIslandView.showsCompletionIndicator(for: session.presentationStatus)
     {
       store.dismissCompletion(sessionID: session.id)
+    }
+    if !store.sessionSummaries.isEmpty {
+      store.expand()
     } else {
       expandSurface()
     }
