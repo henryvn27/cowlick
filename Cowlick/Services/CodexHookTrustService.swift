@@ -144,7 +144,7 @@ struct CodexHookTrustService: Sendable {
     do {
       let runner = try BoundedProcessRunner(
         executableURL: executable,
-        arguments: ["app-server", "--stdio"],
+        arguments: ["app-server"],
         environment: environment,
         acceptsInput: true,
         timeout: timeout,
