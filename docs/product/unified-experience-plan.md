@@ -231,7 +231,7 @@ The compact notch is a status sentence, not an icon strip:
 ```
 
 - The black surface is visually continuous with the hardware camera housing.
-- The top edge never moves. The fixed AppKit host remains unchanged; SwiftUI owns one downward morph.
+- The top edge never moves. The AppKit panel tracks the visible surface bounds; SwiftUI owns the downward morph inside it.
 - State/approval owns the strongest color. Usage is secondary unless at risk.
 - Now is preferred over the chat title. Project is retained as context.
 - At narrow widths, truncation order is chat metadata → agent detail → Project → Now. State and approval never disappear.
@@ -299,11 +299,11 @@ If Codex cannot deep-link directly to the review screen, Cowlick should say exac
 
 ## 8. Motion and interaction system
 
-Cowlick already uses the Apache-2.0 Ping Island fixed-shell architecture. Keep it as the surface engine and improve within that ownership model:
+Cowlick uses the Apache-2.0 Ping Island surface architecture with one safety-critical adaptation:
 
-- one stable transparent AppKit host;
+- one transparent, top-anchored AppKit panel sized to the currently visible surface so hidden space never blocks another app;
 - one top-anchored SwiftUI surface controlling width, height, corners, and body reveal;
-- bounded hit testing so unused host space is click-through;
+- bounded hit testing inside the visible panel;
 - no AppKit frame animation during state changes;
 - passive hover feedback and 160 ms pointer-exit collapse;
 - interruptible opening spring, critically damped closing spring;

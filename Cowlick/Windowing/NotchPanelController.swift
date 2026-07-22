@@ -151,7 +151,7 @@ final class NotchPanelController {
       baseSize = NotchTheme.compactSize
     }
 
-    guard presentationEnabled, (store.shouldShowOverlay || hasUsagePresentation),
+    guard presentationEnabled, store.shouldShowOverlay || hasUsagePresentation,
       let screen = NotchGeometryResolver.preferredScreen(store.settings.preferredDisplay)
     else {
       panel.orderOut(nil)
@@ -190,17 +190,8 @@ final class NotchPanelController {
 
     let reduceMotion =
       store.settings.reducedAnimation || NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-    let hostContentSize = NotchTheme.hostSize(
-      notchGapWidth: geometry.notchGapWidth,
-      safeAreaTop: geometry.safeAreaTop
-    )
-    guard let hostGeometry = resolvedGeometry(screen: screen, contentSize: hostContentSize) else {
-      panel.orderOut(nil)
-      currentGeometry = nil
-      return
-    }
-    if panel.frame != hostGeometry.panelFrame {
-      panel.setFrame(hostGeometry.panelFrame, display: false)
+    if panel.frame != geometry.panelFrame {
+      panel.setFrame(geometry.panelFrame, display: false)
     }
 
     let wasVisible = panel.isVisible

@@ -35,13 +35,6 @@ final class NotchSurfaceEngineTests: XCTestCase {
     )
   }
 
-  func testHostSizeFitsLargestAttachedApprovalSurface() {
-    XCTAssertEqual(
-      NotchTheme.hostSize(notchGapWidth: 212, safeAreaTop: 38),
-      CGSize(width: 380, height: 208)
-    )
-  }
-
   func testOnlyCompactModeIsCollapsed() {
     XCTAssertFalse(NotchSurfaceMode.compact.isExpanded)
     XCTAssertTrue(NotchSurfaceMode.sessions.isExpanded)

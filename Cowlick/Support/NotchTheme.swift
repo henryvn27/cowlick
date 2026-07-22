@@ -26,8 +26,9 @@ enum NotchTheme {
   static let reducedMotionFadeDuration = 0.12
   static let hoverFeedbackDuration = 0.12
   static let hoverCloseDelay = 0.16
-  // Surface springs follow Ping Island's fixed-shell engine. AppKit owns a
-  // stable host window; SwiftUI retargets the complete notch surface.
+  // SwiftUI animates the complete notch surface inside an AppKit panel whose
+  // frame always matches the visible surface, so transparent space cannot
+  // intercept clicks in other apps.
   static let surfaceOpen = Animation.spring(
     response: 0.42, dampingFraction: 0.8, blendDuration: 0)
   static let surfaceClose = Animation.spring(
@@ -68,15 +69,6 @@ enum NotchTheme {
     return CGSize(
       width: 360,
       height: 20 + CGFloat(visibleCount) * 28 + overflowHeight + controlsHeight
-    )
-  }
-
-  static func hostSize(notchGapWidth: CGFloat, safeAreaTop: CGFloat) -> CGSize {
-    attachedSize(
-      baseSize: maximumApprovalSize,
-      notchGapWidth: notchGapWidth,
-      safeAreaTop: safeAreaTop,
-      expanded: true
     )
   }
 

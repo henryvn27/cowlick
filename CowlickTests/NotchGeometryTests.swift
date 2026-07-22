@@ -247,6 +247,8 @@ final class NotchGeometryTests: XCTestCase {
     let compact = try XCTUnwrap(resolveNotched(contentSize: compactSize))
     let expanded = try XCTUnwrap(resolveNotched(contentSize: expandedSize))
 
+    XCTAssertEqual(compact.panelFrame.size, compactSize)
+    XCTAssertEqual(expanded.panelFrame.size, expandedSize)
     XCTAssertEqual(compact.panelFrame.maxY, 982)
     XCTAssertEqual(expanded.panelFrame.maxY, compact.panelFrame.maxY)
     XCTAssertGreaterThanOrEqual(expanded.panelFrame.width, compact.panelFrame.width)
