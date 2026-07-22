@@ -223,18 +223,16 @@ Camera, calendar, media, and file access are independently removable. Mirror sta
 
 ### 5.1 Notch compact state
 
-The compact notch is a status sentence, not an icon strip:
+The compact notch is a quiet quota glance, not a task progress display:
 
 ```text
-┌ state + usage ─────── [physical camera] ─────── project · now ┐
-│ ● 78%                                           Cowlick · Rendering mockups │
+┌── 78% ── [physical camera] ── -11% ──┐
 ```
 
 - The black surface is visually continuous with the hardware camera housing.
-- The top edge never moves. The AppKit panel tracks the visible surface bounds; SwiftUI owns the downward morph inside it.
-- State/approval owns the strongest color. Usage is secondary unless at risk.
-- Now is preferred over the chat title. Project is retained as context.
-- At narrow widths, truncation order is chat metadata → agent detail → Project → Now. State and approval never disappear.
+- The top edge never moves. SwiftUI owns the downward morph; AppKit prepares the larger host before opening and retains it until closing completes.
+- Current work never replaces quota in the compact wings. Hover or click opens the Work view; approvals may request the expanded surface when action is required.
+- A brief completion indicator can appear without replacing either configured quota value.
 - The minimized hardware-notch shell is exactly as tall as the safe-area notch and adds two matched 48-point wings; it never extends below the camera housing.
 - Idle with usage available centers the primary percentage in the left wing. The right wing is user-selectable: blank, used/left meaning, window progress, pace balance (`+13%` banked, `-14%` behind), reset countdown, projected runway, or the opt-in reset probability. The shell never grows for a selection.
 - Compact secondary values use terse visible tokens and complete VoiceOver labels; unavailable data leaves the wing blank rather than guessing.
@@ -246,6 +244,7 @@ The compact notch is a status sentence, not an icon strip:
 - Header: project, state, usage, page switcher, collapse affordance.
 - Work page hierarchy: Project label → Goal (two lines) → Now (one/two lines) → phase timeline → sessions/agents.
 - Approval replaces the Work body with one focused decision surface; secondary pages are disabled until resolved or deferred.
+- The session list grows with one, two, or three rows. More sessions remain in the same three-row viewport and scroll without a persistent system scrollbar.
 - Bottom action rail always provides Open Codex, Settings, Diagnostics, and Quit.
 - Only the page body changes. Header, shell, actions, and selected-project identity persist through transitions.
 
@@ -281,7 +280,7 @@ Priority remains: approval → failed → working → recently completed → idl
 
 ## 7. Setup redesign
 
-The current seven-step flow ends with a security review instruction that asks the user to copy `/hooks`, open Codex, run the command, review several hooks, return, and check again. The security gate is valid; the choreography is not.
+The previous seven-step flow ended with a security review instruction that asked the user to copy `/hooks`, open Codex, run the command, review several hooks, return, and check again. The security gate was valid; the choreography was not.
 
 Replace it with a three-stage setup:
 
@@ -299,14 +298,14 @@ If Codex cannot deep-link directly to the review screen, Cowlick should say exac
 
 ## 8. Motion and interaction system
 
-Cowlick uses the Apache-2.0 Ping Island surface architecture with one safety-critical adaptation:
+Cowlick uses the Apache-2.0 Ping Island surface architecture with safety-critical adaptations:
 
-- one transparent, top-anchored AppKit panel sized to the currently visible surface so hidden space never blocks another app;
+- one transparent, top-anchored AppKit panel whose interactive region is bounded to the requested compact or expanded surface; compact mode never retains the expanded hit region;
 - one top-anchored SwiftUI surface controlling width, height, corners, and body reveal;
 - bounded hit testing inside the visible panel;
-- no AppKit frame animation during state changes;
-- passive hover feedback and 160 ms pointer-exit collapse;
-- interruptible opening spring, critically damped closing spring;
+- AppKit prepares the opening frame before the SwiftUI reveal and delays the closing frame reduction until the visible morph completes;
+- 80 ms hover intent opens the surface and 160 ms pointer-exit intent collapses it;
+- interruptible, zero-bounce 340 ms opening and 280 ms closing curves that grow from the compact top edge;
 - opacity-only body insertion clipped by the shell;
 - immediate 80–100 ms press response;
 - no blur stacks, glow, bounce, scale-from-zero, or independent child-card motion;

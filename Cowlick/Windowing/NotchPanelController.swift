@@ -82,6 +82,7 @@ final class NotchPanelController {
   private let presentation = NotchPanelPresentation()
   private var observers: [NSObjectProtocol] = []
   private var presentationUpdateScheduled = false
+  private var geometryTransitionTask: Task<Void, Never>?
   private var lastAnnouncedApprovalID: UUID?
   private var presentationEnabled = false
   private(set) var currentGeometry: ResolvedNotchGeometry?
@@ -138,6 +139,7 @@ final class NotchPanelController {
     guard presentationEnabled, store.shouldShowOverlay || hasUsagePresentation,
       let screen = NotchGeometryResolver.preferredScreen(store.settings.preferredDisplay)
     else {
+      geometryTransitionTask?.cancel()
       panel.orderOut(nil)
       currentGeometry = nil
       return
@@ -163,8 +165,8 @@ final class NotchPanelController {
       return
     }
 
+    geometryTransitionTask?.cancel()
     currentGeometry = geometry
-    presentation.update(from: geometry, surfaceSize: contentSize, mode: mode)
     panel.hasShadow = !geometry.hasNotch
     panel.permitsKeyInteraction = interactiveApproval
     panel.ignoresMouseEvents = false
@@ -174,12 +176,45 @@ final class NotchPanelController {
 
     let reduceMotion =
       store.settings.reducedAnimation || NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-    if panel.frame != geometry.panelFrame {
-      panel.setFrame(geometry.panelFrame, display: false)
-    }
-
     let wasVisible = panel.isVisible
     panel.orderFrontRegardless()
+
+    let presentationNeedsUpdate =
+      presentation.isAttached != geometry.hasNotch
+      || presentation.notchGapWidth != geometry.notchGapWidth
+      || presentation.safeAreaTop != geometry.safeAreaTop
+      || presentation.surfaceSize != contentSize
+      || presentation.mode != mode
+    let growsHost =
+      geometry.panelFrame.width > panel.frame.width
+      || geometry.panelFrame.height > panel.frame.height
+    let shrinksHost =
+      geometry.panelFrame.width < panel.frame.width
+      || geometry.panelFrame.height < panel.frame.height
+
+    if !wasVisible || reduceMotion || !presentationNeedsUpdate {
+      if panel.frame != geometry.panelFrame {
+        panel.setFrame(geometry.panelFrame, display: false)
+      }
+      presentation.update(from: geometry, surfaceSize: contentSize, mode: mode)
+    } else if growsHost {
+      panel.setFrame(geometry.panelFrame, display: false)
+      geometryTransitionTask = Task { @MainActor [weak self] in
+        await Task.yield()
+        guard let self, !Task.isCancelled, self.currentGeometry == geometry else { return }
+        self.presentation.update(from: geometry, surfaceSize: contentSize, mode: mode)
+      }
+    } else {
+      presentation.update(from: geometry, surfaceSize: contentSize, mode: mode)
+      if shrinksHost {
+        geometryTransitionTask = Task { @MainActor [weak self] in
+          try? await Task.sleep(for: .seconds(NotchTheme.surfaceCloseDuration))
+          guard let self, !Task.isCancelled, self.currentGeometry == geometry else { return }
+          self.panel.setFrame(geometry.panelFrame, display: false)
+        }
+      }
+    }
+
     if !wasVisible, !reduceMotion {
       panel.alphaValue = 0
       NSAnimationContext.runAnimationGroup { context in
@@ -198,6 +233,7 @@ final class NotchPanelController {
     if enabled {
       schedulePresentationUpdate()
     } else {
+      geometryTransitionTask?.cancel()
       panel.orderOut(nil)
       currentGeometry = nil
     }

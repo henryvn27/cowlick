@@ -252,7 +252,10 @@ struct SettingsView: View {
         billingStore: services.providerBillingStore,
         usageStore: services.usageStore
       )
-      .tabItem { Label("Accounts", systemImage: "person.2") }
+      .tabItem {
+        Label("Accounts", systemImage: "person.2")
+          .accessibilityIdentifier("settings-accounts-tab")
+      }
 
       Form {
         Section("Caps Lock signal") {

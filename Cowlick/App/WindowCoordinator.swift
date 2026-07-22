@@ -125,8 +125,11 @@ final class WindowCoordinator {
     window.title = title
     window.contentMinSize = CGSize(width: size.width * 0.8, height: size.height * 0.8)
     window.isReleasedWhenClosed = false
-    window.center()
     window.contentViewController = NSHostingController(rootView: rootView)
+    // Installing an unconstrained SwiftUI hosting controller can replace the requested frame with
+    // its ideal size. Reassert the caller's initial content size, then center that final frame.
+    window.setContentSize(size)
+    window.center()
     return NSWindowController(window: window)
   }
 

@@ -116,6 +116,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     services.settings.presentationPreference =
       CommandLine.arguments.contains("--menu-bar") ? .menuBar : .automatic
     services.settings.showChatNames = !CommandLine.arguments.contains("--hide-chat-names")
+    services.settings.showPromptPreviews =
+      CommandLine.arguments.contains("--show-prompt-previews")
     services.settings.showResultPreviews = CommandLine.arguments.contains("--show-result-previews")
     if ProcessInfo.processInfo.environment["COWLICK_ASSET_CAPTURE"] == "1" {
       services.settings.reducedAnimation = true
@@ -135,6 +137,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.sessionStore.testState(.working)
         try? await Task.sleep(for: .milliseconds(500))
         services.sessionStore.testMultipleSessions()
+      } else if stateName == "overflow" {
+        services.sessionStore.testOverflowSessions()
       } else if let stateName, let state = BridgeEventName(rawValue: stateName) {
         if state == .approvalRequested {
           services.sessionStore.testState(.working)

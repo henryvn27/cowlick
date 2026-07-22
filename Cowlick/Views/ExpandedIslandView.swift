@@ -21,9 +21,11 @@ struct ExpandedIslandView: View {
           sessions: store.sessionSummaries,
           showPromptPreviews: store.settings.showPromptPreviews,
           showResultPreviews: store.settings.showResultPreviews,
-          isAttached: isAttached,
-          openDiagnostics: { WindowCoordinator.shared.openDiagnostics() })
+          isAttached: isAttached
+        )
+        .layoutPriority(1)
         NotchActionBar(store: store, isAttached: isAttached)
+          .frame(height: NotchTheme.actionBarHeight)
       }
     }
   }

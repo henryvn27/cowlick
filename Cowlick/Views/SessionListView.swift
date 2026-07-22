@@ -5,7 +5,6 @@ struct SessionListView: View {
   let showPromptPreviews: Bool
   let showResultPreviews: Bool
   let isAttached: Bool
-  let openDiagnostics: () -> Void
 
   var body: some View {
     VStack(alignment: .leading, spacing: 4) {
@@ -15,61 +14,64 @@ struct SessionListView: View {
           .foregroundStyle(secondaryTextColor)
           .padding(.bottom, 2)
       }
-      ForEach(sessions.prefix(visibleSessionLimit)) { session in
-        HStack(spacing: 10) {
-          statusIcon(for: session)
-            .frame(width: 16)
-          VStack(alignment: .leading, spacing: 2) {
-            Text(session.displayName)
-              .font(.system(size: 12.5, weight: .medium))
-              .foregroundStyle(primaryTextColor)
-              .lineLimit(1)
-              .truncationMode(.tail)
-            Text(
-              Self.secondaryText(
-                for: session,
-                showPromptPreviews: showPromptPreviews,
-                showResultPreviews: showResultPreviews)
-            )
-            .font(.system(size: 10.5))
-            .foregroundStyle(secondaryTextColor)
-            .lineLimit(1)
-          }
-          Spacer()
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(
-          Self.accessibilityLabel(
-            for: session,
-            showPromptPreviews: showPromptPreviews,
-            showResultPreviews: showResultPreviews)
-        )
-        .accessibilityIdentifier("session-row-\(session.id)")
-      }
-      if sessions.count > visibleSessionLimit {
-        Text(Self.overflowText(hiddenCount: sessions.count - visibleSessionLimit))
-          .font(.system(size: 10.5, weight: .medium))
-          .foregroundStyle(secondaryTextColor)
-          .padding(.leading, 26)
-          .accessibilityLabel(
-            Self.overflowText(hiddenCount: sessions.count - visibleSessionLimit))
-      }
-      if sessions.contains(where: { session in
-        if case .failed = session.presentationStatus { return true }
-        return false
-      }) {
-        Button("Open Diagnostics", action: openDiagnostics)
-          .buttonStyle(.bordered)
-          .controlSize(.small)
-          .accessibilityHint("Open sanitized Cowlick errors and bridge health")
-      }
+      sessionViewport
     }
     .padding(.horizontal, 14)
     .padding(.vertical, 10)
   }
 
-  private var visibleSessionLimit: Int {
-    sessions.count > 3 ? 2 : min(3, sessions.count)
+  @ViewBuilder
+  private var sessionViewport: some View {
+    if sessions.count > NotchTheme.maximumVisibleSessionCount {
+      ScrollView(.vertical, showsIndicators: false) {
+        sessionRows
+      }
+      .frame(height: NotchTheme.maximumSessionViewportHeight)
+      .accessibilityIdentifier("session-scroll-view")
+    } else {
+      sessionRows
+    }
+  }
+
+  private var sessionRows: some View {
+    LazyVStack(alignment: .leading, spacing: NotchTheme.sessionRowSpacing) {
+      ForEach(sessions) { session in
+        sessionRow(for: session)
+      }
+    }
+  }
+
+  private func sessionRow(for session: AgentSession) -> some View {
+    HStack(spacing: 10) {
+      statusIcon(for: session)
+        .frame(width: 16)
+      VStack(alignment: .leading, spacing: 2) {
+        Text(session.displayName)
+          .font(.system(size: 12.5, weight: .medium))
+          .foregroundStyle(primaryTextColor)
+          .lineLimit(1)
+          .truncationMode(.tail)
+        Text(
+          Self.secondaryText(
+            for: session,
+            showPromptPreviews: showPromptPreviews,
+            showResultPreviews: showResultPreviews)
+        )
+        .font(.system(size: 10.5))
+        .foregroundStyle(secondaryTextColor)
+        .lineLimit(1)
+      }
+      Spacer()
+    }
+    .frame(height: NotchTheme.sessionRowHeight)
+    .accessibilityElement(children: .ignore)
+    .accessibilityLabel(
+      Self.accessibilityLabel(
+        for: session,
+        showPromptPreviews: showPromptPreviews,
+        showResultPreviews: showResultPreviews)
+    )
+    .accessibilityIdentifier("session-row-\(session.id)")
   }
 
   private var primaryTextColor: Color {
@@ -150,7 +152,4 @@ struct SessionListView: View {
     return parts.joined(separator: ", ")
   }
 
-  static func overflowText(hiddenCount: Int) -> String {
-    "\(hiddenCount) more active \(hiddenCount == 1 ? "session" : "sessions")"
-  }
 }

@@ -199,9 +199,30 @@ final class NotchGeometryTests: XCTestCase {
     XCTAssertEqual(NotchTheme.hoverFeedbackDuration, 0.12)
     XCTAssertEqual(NotchTheme.hoverOpenDelay, 0.08)
     XCTAssertEqual(NotchTheme.hoverCloseDelay, 0.16)
-    XCTAssertEqual(NotchTheme.surfaceOpenDuration, 0.28)
-    XCTAssertEqual(NotchTheme.surfaceCloseDuration, 0.24)
+    XCTAssertEqual(NotchTheme.surfaceOpenDuration, 0.34)
+    XCTAssertEqual(NotchTheme.surfaceCloseDuration, 0.28)
     XCTAssertEqual(NotchTheme.reducedMotionFadeDuration, 0.12)
+  }
+
+  func testSessionListHeightGrowsThroughThreeRowsThenCaps() {
+    XCTAssertEqual(NotchTheme.sessionListSize(sessionCount: 0), CGSize(width: 360, height: 52))
+    XCTAssertEqual(NotchTheme.sessionListSize(sessionCount: 1), CGSize(width: 360, height: 84))
+    XCTAssertEqual(NotchTheme.sessionListSize(sessionCount: 2), CGSize(width: 360, height: 120))
+    XCTAssertEqual(NotchTheme.sessionListSize(sessionCount: 3), CGSize(width: 360, height: 156))
+    XCTAssertEqual(NotchTheme.sessionListSize(sessionCount: 4), CGSize(width: 360, height: 156))
+    XCTAssertEqual(NotchTheme.maximumSessionViewportHeight, 104)
+  }
+
+  func testAnimatedSurfacePathKeepsItsTopEdgeFixed() {
+    let host = CGRect(x: 0, y: 0, width: 420, height: 240)
+    let compact = TopAnchoredNotchShape(
+      size: CGSize(width: 281, height: 32), topRadius: 0, bottomRadius: 14)
+    let expanded = TopAnchoredNotchShape(
+      size: CGSize(width: 360, height: 156), topRadius: 0, bottomRadius: 22)
+
+    XCTAssertEqual(compact.path(in: host).boundingRect.minY, host.minY, accuracy: 0.001)
+    XCTAssertEqual(expanded.path(in: host).boundingRect.minY, host.minY, accuracy: 0.001)
+    XCTAssertEqual(expanded.path(in: host).boundingRect.maxY, 156, accuracy: 0.001)
   }
 
   @MainActor

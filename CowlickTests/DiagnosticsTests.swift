@@ -1199,12 +1199,13 @@ final class DiagnosticsTests: XCTestCase {
       .unavailable("Codex unavailable"),
     ] {
       XCTAssertFalse(OnboardingView.canContinueFromIntegration(trustState: state))
-      XCTAssertNotEqual(OnboardingView.finishTitle(trustState: state), "You're ready.")
-      XCTAssertEqual(OnboardingView.completionButtonTitle(trustState: state), "Finish Later")
+      XCTAssertEqual(
+        OnboardingView.finishTitle(trustState: state), "Cowlick is ready in limited mode.")
+      XCTAssertEqual(OnboardingView.completionButtonTitle(trustState: state), "Start Cowlick")
     }
     XCTAssertTrue(OnboardingView.canContinueFromIntegration(trustState: .trusted))
-    XCTAssertEqual(OnboardingView.finishTitle(trustState: .trusted), "You're ready.")
-    XCTAssertEqual(OnboardingView.completionButtonTitle(trustState: .trusted), "Done")
+    XCTAssertEqual(OnboardingView.finishTitle(trustState: .trusted), "Cowlick is ready.")
+    XCTAssertEqual(OnboardingView.completionButtonTitle(trustState: .trusted), "Start Cowlick")
   }
 
   func testReviewOnboardingExplainsOneActionHandoffAndApprovalBoundary() {
@@ -1214,11 +1215,11 @@ final class DiagnosticsTests: XCTestCase {
     )
     let instruction = OnboardingView.finishInstruction(trustState: .needsReview)
 
-    XCTAssertTrue(detail.contains("Cowlick is connected"), detail)
-    XCTAssertTrue(detail.contains("approval actions"), detail)
-    XCTAssertFalse(detail.contains("ready"), detail)
-    XCTAssertTrue(instruction.contains("copy /hooks and open Codex"), instruction)
-    XCTAssertTrue(instruction.contains("checks automatically"), instruction)
+    XCTAssertTrue(detail.contains("Usage and local activity"), detail)
+    XCTAssertTrue(detail.contains("Approval actions"), detail)
+    XCTAssertFalse(detail.contains("fully connected"), detail)
+    XCTAssertTrue(instruction.contains("Paste /hooks in Codex"), instruction)
+    XCTAssertTrue(instruction.contains("then return"), instruction)
   }
 
   func testDiagnosticsSanitizesEventScalarsBeforeAddingSeparators() {

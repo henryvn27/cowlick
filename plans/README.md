@@ -12,6 +12,7 @@
 | [008](008-tighten-notch-motion.md) | Tighten the notch morph | HIGH | DONE — motion verified |
 | [009](009-show-usage-in-notch.md) | Show Codex usage in the compact notch | MEDIUM | DONE — visual verified |
 | [010](010-make-compact-notch-quiet.md) | Make the compact notch quiet and hover-revealed | HIGH | DONE |
+| [011](011-anchor-adaptive-notch-expansion.md) | Anchor and content-size notch expansion | HIGH | DONE — motion verified |
 
 Plans 001 and 002 record the first motion pass at `b009140`. The July 21 audit at `a937b39` found that pass insufficient: presentation ownership is still duplicated, the shell and content still run on separate timelines, and the threshold gesture is not direct manipulation. Plans 003–006 supersede the earlier motion assumptions without rewriting their historical record.
 
@@ -33,3 +34,8 @@ spacing. They share no implementation dependency beyond the current plan-007 sur
 Plan 010 is the user-directed interaction revision after physical use of plans 008 and 009. It
 supersedes plan 002's scroll-to-expand behavior and the session-first compact layout from plan 009,
 while preserving the fixed bounded host, quota data path, click access, and approval behavior.
+
+Plan 011 is the physical-use follow-up to plan 010. Execute it against the bounded-host surface:
+prepare expanded host geometry before the SwiftUI open morph, delay host shrink until close
+finishes, cap the content-sized session viewport at three rows, and keep the action bar outside the
+scrolling region. It supersedes plan 010's small open bounce and its two-row-plus-overflow layout.

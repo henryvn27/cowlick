@@ -6,7 +6,7 @@ import SwiftUI
 // Color: physical black, a neutral stone control tint, and restrained semantic status colors.
 // Density: compact overlay on a 4-point grid; comfortable system-native windows.
 // Radius: continuous pill geometry; no ornamental cards.
-// Motion: restrained spring transitions, disabled for Reduce Motion.
+// Motion: restrained top-down transitions, disabled for Reduce Motion.
 enum NotchTheme {
   static let island = Color.black
   static let floatingSurface = Color(nsColor: .windowBackgroundColor)
@@ -27,17 +27,28 @@ enum NotchTheme {
   static let hoverFeedbackDuration = 0.12
   static let hoverOpenDelay = 0.08
   static let hoverCloseDelay = 0.16
-  static let surfaceOpenDuration = 0.28
-  static let surfaceCloseDuration = 0.24
-  // SwiftUI animates the complete notch surface inside an AppKit panel whose
-  // frame always matches the visible surface, so transparent space cannot
-  // intercept clicks in other apps.
-  static let surfaceOpen = Animation.spring(duration: surfaceOpenDuration, bounce: 0.08)
-  static let surfaceClose = Animation.spring(duration: surfaceCloseDuration, bounce: 0)
+  static let surfaceOpenDuration = 0.34
+  static let surfaceCloseDuration = 0.28
+  static let maximumVisibleSessionCount = 3
+  static let sessionRowHeight: CGFloat = 32
+  static let sessionRowSpacing: CGFloat = 4
+  static let sessionListVerticalPadding: CGFloat = 20
+  static let actionBarHeight: CGFloat = 32
+  // SwiftUI owns the visible surface morph. AppKit only prepares the opening
+  // host and retains it until closing finishes; hit testing follows the
+  // requested compact or expanded surface rather than the transparent host.
+  static let surfaceOpen = Animation.timingCurve(
+    0.42, 0, 0.58, 1, duration: surfaceOpenDuration)
+  static let surfaceClose = Animation.timingCurve(
+    0.42, 0, 0.58, 1, duration: surfaceCloseDuration)
   static let statusChange = Animation.timingCurve(
     0.23, 1.00, 0.32, 1.00, duration: 0.16)
   static let contentReveal = Animation.timingCurve(
-    0.23, 1.00, 0.32, 1.00, duration: 0.16)
+    0.23, 1.00, 0.32, 1.00, duration: 0.18
+  ).delay(0.05)
+  static let contentConceal = Animation.timingCurve(
+    0.42, 0, 0.58, 1, duration: 0.10
+  )
   static let pressFeedback = Animation.timingCurve(
     0.23, 1.00, 0.32, 1.00, duration: 0.14)
   static let dragRelease = Animation.spring(duration: 0.5, bounce: 0.2)
@@ -64,13 +75,18 @@ enum NotchTheme {
   }
 
   static func sessionListSize(sessionCount: Int) -> CGSize {
-    let visibleCount = sessionCount > 3 ? 2 : min(3, sessionCount)
-    let overflowHeight: CGFloat = sessionCount > visibleCount ? 20 : 0
-    let controlsHeight: CGFloat = 32
+    let visibleCount = min(max(0, sessionCount), maximumVisibleSessionCount)
+    let rowSpacing = CGFloat(max(0, visibleCount - 1)) * sessionRowSpacing
     return CGSize(
       width: 360,
-      height: 20 + CGFloat(visibleCount) * 28 + overflowHeight + controlsHeight
+      height: sessionListVerticalPadding + CGFloat(visibleCount) * sessionRowHeight + rowSpacing
+        + actionBarHeight
     )
+  }
+
+  static var maximumSessionViewportHeight: CGFloat {
+    CGFloat(maximumVisibleSessionCount) * sessionRowHeight
+      + CGFloat(maximumVisibleSessionCount - 1) * sessionRowSpacing
   }
 
   static func approvalSize(for request: ApprovalRequest) -> CGSize {

@@ -72,19 +72,19 @@ struct CollapsedIslandView: View {
     .opacity(showsHoverFeedback && !isHovering ? 0.94 : 1)
   }
 
-  static func accessibilityHint(for status: AgentStatus) -> String {
+  nonisolated static func accessibilityHint(for status: AgentStatus) -> String {
     if case .completed = status {
       return "Show recent activity and dismiss the completed indicator"
     }
     return "Show recent activity"
   }
 
-  static func showsCompletionIndicator(for status: AgentStatus?) -> Bool {
+  nonisolated static func showsCompletionIndicator(for status: AgentStatus?) -> Bool {
     guard let status, case .completed = status else { return false }
     return true
   }
 
-  static func accessibilityLabel(
+  nonisolated static func accessibilityLabel(
     session: AgentSession?,
     activeCount: Int,
     activeSubagentCount: Int,
@@ -107,7 +107,7 @@ struct CollapsedIslandView: View {
     return parts.joined(separator: ", ")
   }
 
-  static func usageText(showCodexUsage: Bool, percent: Double?) -> String? {
+  nonisolated static func usageText(showCodexUsage: Bool, percent: Double?) -> String? {
     guard showCodexUsage, let percent else { return nil }
     return "\(Int(percent.rounded()))%"
   }

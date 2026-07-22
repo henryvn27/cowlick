@@ -114,7 +114,7 @@ try {
   );
   assert.match(
     await page.getByLabel("Supported systems").textContent(),
-    /One compact menu-bar item without a notch/
+    /Notch or one menu-bar item—never both/
   );
 
   const approval = page.getByRole("button", { name: "Approval" });

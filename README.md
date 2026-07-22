@@ -1,7 +1,7 @@
 <p align="center"><img src="Assets/AppIcon/cowlick-icon.svg" width="112" alt="Cowlick icon"></p>
 <h1 align="center">Cowlick</h1>
-<p align="center"><strong>Codex status and safe approvals at the MacBook notch. Quota planning in the menu bar.</strong></p>
-<p align="center"><a href="https://henryvanness.com/Cowlick">Website</a> · <a href="#install-from-source">Install from source</a> · <a href="docs/security.md">Safety</a> · <a href="docs/privacy.md">Privacy</a></p>
+<p align="center"><strong>Codex usage, current work, and safe approvals in one selected surface.</strong></p>
+<p align="center"><a href="https://henryvanness.com/cowlick">Website</a> · <a href="#install-from-source">Install from source</a> · <a href="docs/security.md">Safety</a> · <a href="docs/privacy.md">Privacy</a></p>
 <p align="center">
   <a href="https://github.com/henryvn27/cowlick/actions/workflows/ci.yml"><img alt="CI status" src="https://github.com/henryvn27/cowlick/actions/workflows/ci.yml/badge.svg?branch=main"></a>
 </p>
@@ -14,16 +14,17 @@ _Illustrative top-edge framing using Cowlick's simulated-notch fixture on a 2× 
 
 > **Release status:** source install only. Cowlick will not publish an unsigned or development-signed download. A public DMG and Homebrew cask will appear after Developer ID signing, notarization, and clean-install verification pass.
 
-Cowlick is a native, local-first macOS companion for OpenAI Codex. It stays out of the way while idle, surfaces active projects and completion near the notch, and lets you allow once or deny supported permission requests without becoming another Codex client.
+Cowlick is a native, local-first macOS companion for OpenAI Codex. On a notched Mac it keeps quota in two minimal wings, reveals current work on hover or click, and lets you allow once or deny supported permission requests without becoming another Codex client.
 
 ## Status that fits the moment
 
-- **Working stays compact.** Project, task state, and active-session count sit close to the notch.
+- **Idle stays minimal.** The compact notch shows quota—not task progress—and never extends below the camera housing.
+- **Work appears on demand.** Hover or click reveals up to three sessions; additional sessions scroll without a permanent scrollbar.
 - **Approvals open only when needed.** Project, tool, operation, and explicit actions stay together.
 - **Completion leaves cleanly.** A brief confirmation appears, then the overlay hides again.
 - **Sessions stay separate.** Each Codex session and pending request keeps its own identity.
 
-On a Mac without a notch, Cowlick uses one compact menu-bar item instead of drawing a fake notch. On a notched Mac, Automatic mode keeps Cowlick entirely in the notch; Menu bar mode is always available as an override.
+On a Mac without a notch, Cowlick uses one compact menu-bar item instead of drawing a fake notch. On a notched Mac, Automatic mode keeps Cowlick entirely in the notch with no Cowlick menu-bar item; Menu bar mode is available as an either-or override.
 
 ## Approval safety
 

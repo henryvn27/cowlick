@@ -52,7 +52,9 @@ final class CowlickUITests: XCTestCase {
     let indicator = app.buttons["compact-completion-indicator"]
     XCTAssertTrue(indicator.waitForExistence(timeout: 3))
 
-    indicator.click()
+    // The center of an attached surface is occupied by the physical camera housing. Exercise the
+    // visible right wing where the completion mark is actually rendered.
+    indicator.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).click()
 
     XCTAssertTrue(indicator.waitForNonExistence(timeout: 2))
     XCTAssertTrue(sessionRow(in: app, id: "demo-visual-state").waitForExistence(timeout: 2))
@@ -128,7 +130,7 @@ final class CowlickUITests: XCTestCase {
     XCTAssertEqual(
       failedSession.label,
       "Repair bridge health, Scoutly, Failed, Bridge self-test failed")
-    XCTAssertTrue(app.buttons["Open Diagnostics"].exists)
+    XCTAssertTrue(app.buttons["Diagnostics"].exists)
   }
 
   func testMultipleSessionListIsAccessible() {
@@ -142,17 +144,30 @@ final class CowlickUITests: XCTestCase {
 
   }
 
+  func testOverflowSessionListScrollsWithoutMovingActionBar() {
+    let app = launch(state: "overflow")
+    let scrollView = app.scrollViews["session-scroll-view"]
+    let settings = app.buttons["Settings"]
+    XCTAssertTrue(scrollView.waitForExistence(timeout: 3))
+    XCTAssertTrue(settings.waitForExistence(timeout: 3))
+    let actionBarY = settings.frame.minY
+
+    scrollView.scroll(byDeltaX: 0, deltaY: 80)
+
+    XCTAssertTrue(sessionRow(in: app, id: "demo-overflow-1").waitForExistence(timeout: 2))
+    XCTAssertEqual(settings.frame.minY, actionBarY, accuracy: 1)
+  }
+
   func testExpandedNotchActionPaddingIsClickable() {
     let app = launch(state: "multiple")
-    let header = app.buttons["Prepare the release candidate, Scoutly, Working, 2 active sessions"]
+    let primarySession = sessionRow(in: app, id: "demo-primary")
     let settings = app.buttons["Settings"]
-    XCTAssertTrue(header.waitForExistence(timeout: 3))
+    XCTAssertTrue(primarySession.waitForExistence(timeout: 3))
     XCTAssertTrue(settings.waitForExistence(timeout: 3))
-    XCTAssertLessThanOrEqual(header.frame.maxY, settings.frame.minY)
+    XCTAssertLessThanOrEqual(primarySession.frame.maxY, settings.frame.minY)
     XCTAssertGreaterThanOrEqual(settings.frame.height, 27)
 
-    let notch = app.windows.firstMatch
-    notch.coordinate(withNormalizedOffset: CGVector(dx: 0.40, dy: 0.98)).click()
+    settings.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.95)).click()
 
     XCTAssertTrue(app.staticTexts["Appearance"].waitForExistence(timeout: 3))
   }
@@ -167,7 +182,8 @@ final class CowlickUITests: XCTestCase {
   func testOnboardingOpens() {
     let app = launch(arguments: ["--open-onboarding"])
     XCTAssertTrue(
-      app.staticTexts["Codex status, at the notch."].waitForExistence(timeout: 3))
+      app.staticTexts["Choose where Cowlick lives."].waitForExistence(timeout: 3))
+    XCTAssertTrue(app.staticTexts["Step 1 of 3"].exists)
   }
 
   func testSettingsOpens() {
@@ -177,7 +193,8 @@ final class CowlickUITests: XCTestCase {
 
   func testAccountsSettingsOpens() {
     let app = launch(arguments: ["--open-settings"])
-    let accountsTab = app.descendants(matching: .any).matching(identifier: "Accounts").firstMatch
+    let accountsTab = app.descendants(matching: .any)
+      .matching(identifier: "settings-accounts-tab").firstMatch
     XCTAssertTrue(accountsTab.waitForExistence(timeout: 3))
 
     accountsTab.click()

@@ -507,6 +507,33 @@ final class SessionStore {
     notifyPresentationChanged()
   }
 
+  func testOverflowSessions() {
+    guard canPreviewTestStates else { return }
+    clearLocalDemoState()
+    let now = Date()
+    let demos = [
+      ("demo-overflow-1", "Polish notch motion", "Cowlick"),
+      ("demo-overflow-2", "Verify release hooks", "Scoutly"),
+      ("demo-overflow-3", "Review diagnostics", "ActivityPilot"),
+      ("demo-overflow-4", "Prepare website copy", "Cowlick Web"),
+    ]
+    localDemoSessionIDs.formUnion(demos.map(\.0))
+    for (index, demo) in demos.enumerated() {
+      upsertSession(
+        id: demo.0,
+        turnID: "demo-overflow-turn-\(index + 1)",
+        chatTitle: demoChatTitle(demo.1),
+        projectName: demo.2,
+        cwd: "/Demo/\(demo.2.replacingOccurrences(of: " ", with: ""))",
+        model: "gpt-5.6",
+        status: .working(prompt: demo.1),
+        timestamp: now.addingTimeInterval(Double(index) * 0.01)
+      )
+    }
+    isExpanded = true
+    notifyPresentationChanged()
+  }
+
   private func demoChatTitle(_ value: String) -> String? {
     settings.showChatNames ? value : nil
   }

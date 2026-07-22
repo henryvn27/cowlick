@@ -449,7 +449,8 @@ final class CodexSessionObserverTests: XCTestCase {
 
   @MainActor
   func testHookRemainsAuthoritativeForSameObservedTurn() async {
-    let store = SessionStore(capsLockService: RecordingCapsLockService())
+    let store = SessionStore(
+      settings: makeTestSettings(), capsLockService: RecordingCapsLockService())
     let start = Date()
     _ = await store.receive(
       BridgeEvent(

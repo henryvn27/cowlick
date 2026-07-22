@@ -19,9 +19,11 @@ struct NotchRootView: View {
   private var notchSurface: some View {
     ZStack(alignment: .top) {
       if presentation.isAttached {
-        surfaceShape.fill(NotchTheme.island)
+        animatedSurfaceShape.fill(NotchTheme.island)
+          .animation(surfaceAnimation, value: presentation.state)
       } else {
-        surfaceShape.fill(NotchTheme.floatingSurface)
+        animatedSurfaceShape.fill(NotchTheme.floatingSurface)
+          .animation(surfaceAnimation, value: presentation.state)
       }
 
       VStack(spacing: 0) {
@@ -72,26 +74,29 @@ struct NotchRootView: View {
           .zIndex(0)
         }
       }
-      .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+      .frame(
+        width: presentation.surfaceSize.width,
+        height: presentation.surfaceSize.height,
+        alignment: .top
+      )
       .scaleEffect(
         x: 1,
         y: motionReduced ? 1 : 1 + NotchPullGesturePolicy.progress(for: pullDistance) * 0.015,
         anchor: .top
       )
     }
-    .frame(
-      width: presentation.surfaceSize.width,
-      height: presentation.surfaceSize.height,
-      alignment: .top
-    )
+    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     .overlay {
       if !presentation.isAttached {
-        surfaceShape.stroke(.separator.opacity(0.55), lineWidth: 0.5)
+        animatedSurfaceShape.stroke(.separator.opacity(0.55), lineWidth: 0.5)
+          .animation(surfaceAnimation, value: presentation.state)
       }
     }
-    .contentShape(surfaceShape)
-    .clipShape(surfaceShape)
-    .animation(surfaceAnimation, value: presentation.state)
+    .contentShape(animatedSurfaceShape)
+    .mask {
+      animatedSurfaceShape.fill(.white)
+        .animation(surfaceAnimation, value: presentation.state)
+    }
     .onHover(perform: handleHover)
     .simultaneousGesture(pullDownGesture)
   }
@@ -104,16 +109,12 @@ struct NotchRootView: View {
     presentation.isAttached ? presentation.safeAreaTop : NotchTheme.compactSize.height
   }
 
-  private var surfaceShape: UnevenRoundedRectangle {
+  private var animatedSurfaceShape: TopAnchoredNotchShape {
     let attachedRadius = isExpanded ? NotchTheme.expandedBottomRadius : NotchTheme.compactRadius
-    return UnevenRoundedRectangle(
-      cornerRadii: RectangleCornerRadii(
-        topLeading: presentation.isAttached ? 0 : NotchTheme.floatingRadius,
-        bottomLeading: presentation.isAttached ? attachedRadius : NotchTheme.floatingRadius,
-        bottomTrailing: presentation.isAttached ? attachedRadius : NotchTheme.floatingRadius,
-        topTrailing: presentation.isAttached ? 0 : NotchTheme.floatingRadius
-      ),
-      style: .continuous
+    return TopAnchoredNotchShape(
+      size: presentation.surfaceSize,
+      topRadius: presentation.isAttached ? 0 : NotchTheme.floatingRadius,
+      bottomRadius: presentation.isAttached ? attachedRadius : NotchTheme.floatingRadius
     )
   }
 
@@ -133,7 +134,12 @@ struct NotchRootView: View {
   }
 
   private var expandedTransition: AnyTransition {
-    .opacity.animation(motionReduced ? NotchTheme.reducedMotion : NotchTheme.contentReveal)
+    .asymmetric(
+      insertion: .opacity.animation(
+        motionReduced ? NotchTheme.reducedMotion : NotchTheme.contentReveal),
+      removal: .opacity.animation(
+        motionReduced ? NotchTheme.reducedMotion : NotchTheme.contentConceal)
+    )
   }
 
   private var hasUsage: Bool {
@@ -226,5 +232,51 @@ struct NotchRootView: View {
     } else {
       store.expand()
     }
+  }
+}
+
+/// Draws the changing Cowlick surface inside the already-prepared AppKit host. The path's y-origin
+/// is always zero, so size interpolation can only reveal or conceal pixels below the physical notch.
+struct TopAnchoredNotchShape: Shape {
+  typealias SurfaceAnimationData = AnimatablePair<
+    AnimatablePair<CGFloat, CGFloat>, AnimatablePair<CGFloat, CGFloat>
+  >
+
+  var size: CGSize
+  var topRadius: CGFloat
+  var bottomRadius: CGFloat
+
+  var animatableData: SurfaceAnimationData {
+    get {
+      AnimatablePair(
+        AnimatablePair(size.width, size.height),
+        AnimatablePair(topRadius, bottomRadius)
+      )
+    }
+    set {
+      size = CGSize(width: newValue.first.first, height: newValue.first.second)
+      topRadius = newValue.second.first
+      bottomRadius = newValue.second.second
+    }
+  }
+
+  func path(in rect: CGRect) -> Path {
+    let width = min(max(0, size.width), rect.width)
+    let height = min(max(0, size.height), rect.height)
+    let surfaceRect = CGRect(
+      x: rect.midX - width / 2,
+      y: rect.minY,
+      width: width,
+      height: height
+    )
+    return UnevenRoundedRectangle(
+      cornerRadii: RectangleCornerRadii(
+        topLeading: topRadius,
+        bottomLeading: bottomRadius,
+        bottomTrailing: bottomRadius,
+        topTrailing: topRadius
+      ),
+      style: .continuous
+    ).path(in: surfaceRect)
   }
 }
