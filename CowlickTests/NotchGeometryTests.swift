@@ -167,6 +167,30 @@ final class NotchGeometryTests: XCTestCase {
     )
   }
 
+  func testCompactUsageFormattingAndAccessibilityRespectAvailability() {
+    XCTAssertEqual(
+      CollapsedIslandView.usageText(showCodexUsage: true, percent: 72.6),
+      "73%"
+    )
+    XCTAssertNil(CollapsedIslandView.usageText(showCodexUsage: false, percent: 72.6))
+    XCTAssertNil(CollapsedIslandView.usageText(showCodexUsage: true, percent: nil))
+    XCTAssertEqual(
+      CollapsedIslandView.accessibilityLabel(
+        session: nil,
+        activeCount: 0,
+        activeSubagentCount: 0,
+        usageLabel: "Codex, 73 percent remaining"
+      ),
+      "Codex, 73 percent remaining"
+    )
+  }
+
+  func testNotchMotionUsesPromptHoverAndOpacityOnlyContentReveal() {
+    XCTAssertEqual(NotchTheme.hoverOpenDelay, 0.08)
+    XCTAssertEqual(NotchTheme.hoverCloseDelay, 0.16)
+    XCTAssertEqual(NotchTheme.reducedMotionFadeDuration, 0.12)
+  }
+
   func testNotchUsesAuxiliaryGapWithoutHardcodedWidth() throws {
     let result = try XCTUnwrap(
       NotchGeometryResolver.resolve(

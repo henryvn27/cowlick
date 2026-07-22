@@ -25,8 +25,8 @@ enum NotchTheme {
   static let floatingRadius: CGFloat = 12
   static let reducedMotionFadeDuration = 0.12
   static let hoverFeedbackDuration = 0.12
-  static let hoverOpenDelay = 0.20
-  static let hoverCloseDelay = 0.40
+  static let hoverOpenDelay = 0.08
+  static let hoverCloseDelay = 0.16
   // Surface springs follow Ping Island's fixed-shell engine. AppKit owns a
   // stable host window; SwiftUI retargets the complete notch surface.
   static let surfaceOpen = Animation.spring(
@@ -34,6 +34,8 @@ enum NotchTheme {
   static let surfaceClose = Animation.spring(
     response: 0.45, dampingFraction: 1.0, blendDuration: 0)
   static let statusChange = Animation.timingCurve(
+    0.23, 1.00, 0.32, 1.00, duration: 0.16)
+  static let contentReveal = Animation.timingCurve(
     0.23, 1.00, 0.32, 1.00, duration: 0.16)
   static let pressFeedback = Animation.timingCurve(
     0.23, 1.00, 0.32, 1.00, duration: 0.14)

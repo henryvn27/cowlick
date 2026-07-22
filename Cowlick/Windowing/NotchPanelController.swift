@@ -77,6 +77,7 @@ enum ApprovalAccessibilityPresentation {
 @MainActor
 final class NotchPanelController {
   private let store: SessionStore
+  private let usageStore: UsageStore
   private let panel: NotchPanel
   private let presentation = NotchPanelPresentation()
   private var observers: [NSObjectProtocol] = []
@@ -85,8 +86,9 @@ final class NotchPanelController {
   private var presentationEnabled = false
   private(set) var currentGeometry: ResolvedNotchGeometry?
 
-  init(store: SessionStore) {
+  init(store: SessionStore, usageStore: UsageStore) {
     self.store = store
+    self.usageStore = usageStore
     panel = NotchPanel(
       contentRect: CGRect(origin: .zero, size: NotchTheme.compactSize),
       styleMask: [.borderless, .nonactivatingPanel],
@@ -95,7 +97,11 @@ final class NotchPanelController {
     )
     configurePanel()
     let hostingView = NotchHostingView(
-      rootView: NotchRootView(store: store, presentation: presentation))
+      rootView: NotchRootView(
+        store: store,
+        usageStore: usageStore,
+        presentation: presentation
+      ))
     hostingView.canInterpretSwipe = { [weak store, weak presentation] in
       guard let store, let presentation else { return false }
       return presentation.isAttached && store.currentApproval == nil
@@ -124,6 +130,7 @@ final class NotchPanelController {
     }
     panel.contentView = hostingView
     installObservers()
+    observeUsageChanges()
     store.presentationDidChange = { [weak self] in self?.schedulePresentationUpdate() }
   }
 
@@ -144,7 +151,7 @@ final class NotchPanelController {
       baseSize = NotchTheme.compactSize
     }
 
-    guard presentationEnabled, store.shouldShowOverlay,
+    guard presentationEnabled, (store.shouldShowOverlay || hasUsagePresentation),
       let screen = NotchGeometryResolver.preferredScreen(store.settings.preferredDisplay)
     else {
       panel.orderOut(nil)
@@ -267,6 +274,25 @@ final class NotchPanelController {
       guard let self else { return }
       self.presentationUpdateScheduled = false
       self.updatePresentation()
+    }
+  }
+
+  private var hasUsagePresentation: Bool {
+    CollapsedIslandView.usageText(
+      showCodexUsage: usageStore.settings.showCodexUsage,
+      percent: usageStore.primaryDisplayedPercent
+    ) != nil
+  }
+
+  private func observeUsageChanges() {
+    withObservationTracking {
+      _ = usageStore.settings.showCodexUsage
+      _ = usageStore.primaryDisplayedPercent
+    } onChange: { [weak self] in
+      Task { @MainActor [weak self] in
+        self?.observeUsageChanges()
+        self?.schedulePresentationUpdate()
+      }
     }
   }
 

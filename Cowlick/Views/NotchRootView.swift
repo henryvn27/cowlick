@@ -2,6 +2,7 @@ import SwiftUI
 
 struct NotchRootView: View {
   let store: SessionStore
+  let usageStore: UsageStore
   let presentation: NotchPanelPresentation
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @Namespace private var islandMorph
@@ -28,6 +29,7 @@ struct NotchRootView: View {
         if let session = store.displaySession ?? store.sessionSummaries.first {
           CollapsedIslandView(
             session: session,
+            usageStore: usageStore,
             activeCount: store.activeSessionCount,
             activeSubagentCount: store.activeSubagentCount,
             notchGapWidth: presentation.isAttached ? presentation.notchGapWidth : nil,
@@ -35,6 +37,23 @@ struct NotchRootView: View {
             reducedAnimation: store.settings.reducedAnimation,
             namespace: islandMorph,
             action: handleHeaderAction
+          )
+          .frame(
+            height: presentation.isAttached
+              ? presentation.safeAreaTop : NotchTheme.compactSize.height
+          )
+          .zIndex(1)
+        } else if hasUsage {
+          CollapsedIslandView(
+            session: nil,
+            usageStore: usageStore,
+            activeCount: 0,
+            activeSubagentCount: 0,
+            notchGapWidth: presentation.isAttached ? presentation.notchGapWidth : nil,
+            isAttached: presentation.isAttached,
+            reducedAnimation: store.settings.reducedAnimation,
+            namespace: islandMorph,
+            action: {}
           )
           .frame(
             height: presentation.isAttached
@@ -109,22 +128,31 @@ struct NotchRootView: View {
   }
 
   private var expandedTransition: AnyTransition {
-    motionReduced
-      ? .opacity
-      : .asymmetric(
-        insertion: .opacity.combined(with: .scale(scale: 0.96, anchor: .top)),
-        removal: .opacity.combined(with: .scale(scale: 0.98, anchor: .top))
-      )
+    .opacity.animation(motionReduced ? NotchTheme.reducedMotion : NotchTheme.contentReveal)
+  }
+
+  private var hasUsage: Bool {
+    CollapsedIslandView.usageText(
+      showCodexUsage: usageStore.settings.showCodexUsage,
+      percent: usageStore.primaryDisplayedPercent
+    ) != nil
   }
 
   private var pullDownGesture: some Gesture {
     DragGesture(minimumDistance: 3)
       .updating($pullDistance) { value, distance, _ in
-        guard presentation.isAttached, store.currentApproval == nil, !motionReduced else { return }
+        guard
+          presentation.isAttached,
+          store.currentApproval == nil,
+          hasExpandableContent,
+          !motionReduced
+        else { return }
         distance = max(0, value.translation.height)
       }
       .onEnded { value in
-        guard presentation.isAttached, store.currentApproval == nil else { return }
+        guard presentation.isAttached, store.currentApproval == nil, hasExpandableContent else {
+          return
+        }
         if NotchPullGesturePolicy.shouldExpand(
           distance: value.translation.height,
           predictedDistance: value.predictedEndTranslation.height
@@ -141,7 +169,7 @@ struct NotchRootView: View {
     #if DEBUG
       guard !CommandLine.arguments.contains("--disable-auto-hover") else { return }
     #endif
-    guard presentation.isAttached, store.currentApproval == nil else { return }
+    guard presentation.isAttached, store.currentApproval == nil, hasExpandableContent else { return }
 
     hoverIntent = Task { @MainActor in
       let delay = isHovering ? NotchTheme.hoverOpenDelay : NotchTheme.hoverCloseDelay
@@ -153,6 +181,10 @@ struct NotchRootView: View {
         store.collapse()
       }
     }
+  }
+
+  private var hasExpandableContent: Bool {
+    !store.sessionSummaries.isEmpty
   }
 
   private func handleHeaderAction() {

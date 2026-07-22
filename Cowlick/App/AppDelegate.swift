@@ -125,6 +125,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       services.settings.showAPICostEstimate = true
       services.settings.showResetForecast = true
       services.settings.usageMetricPreference = .remaining
+      services.usageStore.refreshIfNeeded(force: true)
     }
     let stateName = CommandLine.arguments.first(where: { $0.hasPrefix("--state=") })
       .map { String($0.dropFirst("--state=".count)) }

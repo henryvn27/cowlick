@@ -1,7 +1,9 @@
 import SwiftUI
 
 struct IslandHeaderView: View {
-  let session: AgentSession
+  let session: AgentSession?
+  let usageText: String?
+  let usageAccessibilityLabel: String?
   let activeCount: Int
   let activeSubagentCount: Int
   let notchGapWidth: CGFloat?
@@ -38,22 +40,36 @@ struct IslandHeaderView: View {
       CollapsedIslandView.accessibilityLabel(
         session: session,
         activeCount: activeCount,
-        activeSubagentCount: activeSubagentCount
+        activeSubagentCount: activeSubagentCount,
+        usageLabel: usageAccessibilityLabel
       ))
   }
 
   private var statusGroup: some View {
     HStack(spacing: 5) {
-      ZStack {
-        statusSymbol
-          .id(statusIdentity)
-          .transition(statusTransition)
+      if let session {
+        ZStack {
+          statusSymbol(for: session)
+            .id(statusIdentity(for: session))
+            .transition(statusTransition)
+        }
+        .frame(width: 16, height: 16)
+        .matchedGeometryEffect(id: "island-status", in: namespace)
+        .animation(statusAnimation, value: statusIdentity(for: session))
+      } else {
+        Image(systemName: "chart.bar")
+          .font(.system(size: 11, weight: .semibold))
+          .foregroundStyle(secondaryTextColor)
       }
-      .frame(width: 16, height: 16)
-      .matchedGeometryEffect(id: "island-status", in: namespace)
-      .animation(statusAnimation, value: statusIdentity)
 
-      if activeSubagentCount > 0 {
+      if let usageText {
+        Text(usageText)
+          .font(.system(size: 10, weight: .semibold))
+          .monospacedDigit()
+          .foregroundStyle(secondaryTextColor)
+      }
+
+      if session != nil, activeSubagentCount > 0 {
         HStack(spacing: 2) {
           Image(systemName: "person.2.fill")
           Text("\(activeSubagentCount)").monospacedDigit()
@@ -66,31 +82,33 @@ struct IslandHeaderView: View {
 
   private var projectLabel: some View {
     HStack(spacing: 6) {
-      VStack(alignment: .leading, spacing: 0) {
-        Text(session.displayName)
-          .font(.system(size: session.projectContext == nil ? 13 : 12.5, weight: .medium))
-          .foregroundStyle(primaryTextColor)
-          .lineLimit(1)
-          .truncationMode(.tail)
-          .matchedGeometryEffect(id: "island-session-name", in: namespace)
-        if let project = session.projectContext {
-          Text(project)
-            .font(.system(size: 9.5, weight: .regular))
-            .foregroundStyle(secondaryTextColor)
+      if let session {
+        VStack(alignment: .leading, spacing: 0) {
+          Text(session.displayName)
+            .font(.system(size: session.projectContext == nil ? 13 : 12.5, weight: .medium))
+            .foregroundStyle(primaryTextColor)
             .lineLimit(1)
             .truncationMode(.tail)
+            .matchedGeometryEffect(id: "island-session-name", in: namespace)
+          if let project = session.projectContext {
+            Text(project)
+              .font(.system(size: 9.5, weight: .regular))
+              .foregroundStyle(secondaryTextColor)
+              .lineLimit(1)
+              .truncationMode(.tail)
+          }
         }
-      }
-      if activeCount > 1 {
-        Text("×\(activeCount)")
-          .font(.system(size: 10.5, weight: .semibold).monospacedDigit())
-          .foregroundStyle(secondaryTextColor)
+        if activeCount > 1 {
+          Text("×\(activeCount)")
+            .font(.system(size: 10.5, weight: .semibold).monospacedDigit())
+            .foregroundStyle(secondaryTextColor)
+        }
       }
     }
   }
 
   @ViewBuilder
-  private var statusSymbol: some View {
+  private func statusSymbol(for session: AgentSession) -> some View {
     switch session.presentationStatus {
     case .working:
       ProgressView()
@@ -123,7 +141,7 @@ struct IslandHeaderView: View {
     motionReduced ? .opacity : .opacity.combined(with: .scale(scale: 0.94))
   }
 
-  private var statusIdentity: StatusIdentity {
+  private func statusIdentity(for session: AgentSession) -> StatusIdentity {
     switch session.presentationStatus {
     case .idle: .idle
     case .working: .working
