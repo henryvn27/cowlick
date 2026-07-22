@@ -177,9 +177,15 @@ final class CowlickUITests: XCTestCase {
     XCTAssertFalse(app.popUpButtons["provider-billing-account"].exists)
     XCTAssertFalse(app.staticTexts["Platform"].exists)
     XCTAssertTrue(app.buttons["Open Codex"].exists)
-    XCTAssertTrue(app.buttons["Settings"].exists)
+    let compactHeader = app.buttons["compact-notch-button"]
+    let settings = app.buttons["Settings"]
+    XCTAssertTrue(compactHeader.exists)
+    XCTAssertTrue(settings.exists)
     XCTAssertTrue(app.buttons["Diagnostics"].exists)
-    XCTAssertTrue(app.buttons["Quit"].exists)
+    let quit = app.buttons["Quit"]
+    XCTAssertTrue(quit.exists)
+    XCTAssertLessThanOrEqual(compactHeader.frame.width, 300)
+    XCTAssertLessThanOrEqual(quit.frame.maxY - compactHeader.frame.minY, 400)
   }
 
   func testExpandedNotchContentCanBeHidden() {

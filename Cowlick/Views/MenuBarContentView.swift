@@ -613,7 +613,7 @@ struct ProviderBillingSectionView: View {
       }
     }
     .padding(.horizontal, 14)
-    .padding(.vertical, density == .compact ? 8 : 10)
+    .padding(.vertical, density == .compact ? 6 : 10)
   }
 
   private func billingPresentation(for accountID: UUID) -> ProviderBillingPresentation {

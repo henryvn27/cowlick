@@ -205,12 +205,12 @@ final class NotchGeometryTests: XCTestCase {
   }
 
   func testSessionListHeightGrowsThroughThreeRowsThenCaps() {
-    XCTAssertEqual(NotchTheme.sessionListSize(sessionCount: 0), CGSize(width: 360, height: 38))
-    XCTAssertEqual(NotchTheme.sessionListSize(sessionCount: 1), CGSize(width: 360, height: 68))
-    XCTAssertEqual(NotchTheme.sessionListSize(sessionCount: 2), CGSize(width: 360, height: 102))
-    XCTAssertEqual(NotchTheme.sessionListSize(sessionCount: 3), CGSize(width: 360, height: 136))
-    XCTAssertEqual(NotchTheme.sessionListSize(sessionCount: 4), CGSize(width: 360, height: 136))
-    XCTAssertEqual(NotchTheme.maximumSessionViewportHeight, 98)
+    XCTAssertEqual(NotchTheme.sessionListSize(sessionCount: 0), CGSize(width: 332, height: 36))
+    XCTAssertEqual(NotchTheme.sessionListSize(sessionCount: 1), CGSize(width: 332, height: 64))
+    XCTAssertEqual(NotchTheme.sessionListSize(sessionCount: 2), CGSize(width: 332, height: 95))
+    XCTAssertEqual(NotchTheme.sessionListSize(sessionCount: 3), CGSize(width: 332, height: 126))
+    XCTAssertEqual(NotchTheme.sessionListSize(sessionCount: 4), CGSize(width: 332, height: 126))
+    XCTAssertEqual(NotchTheme.maximumSessionViewportHeight, 90)
   }
 
   func testExpandedInformationHeightAdaptsThenCaps() {
@@ -234,24 +234,24 @@ final class NotchGeometryTests: XCTestCase {
       )
     }
 
-    XCTAssertEqual(size(sessions: 0), CGSize(width: 360, height: 72))
-    XCTAssertEqual(size(sessions: 1), CGSize(width: 360, height: 112))
-    XCTAssertEqual(size(sessions: 2), CGSize(width: 360, height: 146))
-    XCTAssertEqual(size(sessions: 3), CGSize(width: 360, height: 180))
-    XCTAssertEqual(size(sessions: 4), CGSize(width: 360, height: 180))
-    XCTAssertEqual(size(sessions: 0, officialUsage: true), CGSize(width: 360, height: 212))
-    XCTAssertEqual(size(sessions: 3, currentWork: false), CGSize(width: 360, height: 28))
+    XCTAssertEqual(size(sessions: 0), CGSize(width: 332, height: 68))
+    XCTAssertEqual(size(sessions: 1), CGSize(width: 332, height: 104))
+    XCTAssertEqual(size(sessions: 2), CGSize(width: 332, height: 135))
+    XCTAssertEqual(size(sessions: 3), CGSize(width: 332, height: 166))
+    XCTAssertEqual(size(sessions: 4), CGSize(width: 332, height: 166))
+    XCTAssertEqual(size(sessions: 0, officialUsage: true), CGSize(width: 332, height: 184))
+    XCTAssertEqual(size(sessions: 3, currentWork: false), CGSize(width: 332, height: 28))
     XCTAssertEqual(
       size(sessions: 0, currentWork: false, integrationAlerts: true),
-      CGSize(width: 360, height: 108)
+      CGSize(width: 332, height: 108)
     )
     XCTAssertEqual(
       size(sessions: 0, currentWork: false, billing: true),
-      CGSize(width: 360, height: 78)
+      CGSize(width: 332, height: 70)
     )
     XCTAssertEqual(
       size(sessions: 3, officialUsage: true, apiCost: true, forecast: true),
-      CGSize(width: 360, height: 408)
+      CGSize(width: 332, height: 358)
     )
   }
 
@@ -302,7 +302,7 @@ final class NotchGeometryTests: XCTestCase {
       expanded: false
     )
 
-    XCTAssertEqual(size.width, 308)
+    XCTAssertEqual(size.width, 296)
     XCTAssertEqual(size.height, 32)
   }
 
@@ -354,9 +354,9 @@ final class NotchGeometryTests: XCTestCase {
       allowsWidthGrowth: false
     )
 
-    XCTAssertEqual(compact.width, 308)
+    XCTAssertEqual(compact.width, 296)
     XCTAssertEqual(information.width, compact.width)
-    XCTAssertEqual(information.height, 496)
+    XCTAssertEqual(information.height, 438)
   }
 
   func testNonNotchFallbackSitsBelowMenuBar() throws {

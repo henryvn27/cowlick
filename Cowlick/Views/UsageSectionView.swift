@@ -16,7 +16,7 @@ struct UsageSectionView: View {
   @State private var presentationDate = Date()
 
   var body: some View {
-    VStack(alignment: .leading, spacing: density == .compact ? 8 : 12) {
+    VStack(alignment: .leading, spacing: density == .compact ? 6 : 12) {
       if showOfficialUsage {
         if density == .compact { compactOfficialUsage } else { officialUsage }
       }
@@ -28,7 +28,7 @@ struct UsageSectionView: View {
       }
     }
     .padding(.horizontal, 14)
-    .padding(.vertical, density == .compact ? 8 : 12)
+    .padding(.vertical, density == .compact ? 6 : 12)
     .background {
       MenuPresentationObserver { presentationDate = Date() }
         .frame(width: 0, height: 0)
@@ -36,20 +36,19 @@ struct UsageSectionView: View {
   }
 
   private var compactOfficialUsage: some View {
-    VStack(alignment: .leading, spacing: 8) {
+    VStack(alignment: .leading, spacing: 6) {
       HStack(alignment: .firstTextBaseline, spacing: 8) {
-        VStack(alignment: .leading, spacing: 1) {
-          Text("Codex quota")
-            .font(.caption.weight(.semibold))
-          if let snapshot = store.snapshot {
-            Text(officialFreshness(snapshot))
-              .font(.caption2)
-              .foregroundStyle(store.officialError == nil ? Color.secondary : Color.orange)
-          } else {
-            Text("From the local Codex app")
-              .font(.caption2)
-              .foregroundStyle(.secondary)
-          }
+        Text("Codex quota")
+          .font(.caption.weight(.semibold))
+        if let snapshot = store.snapshot {
+          Text("· \(officialFreshness(snapshot))")
+            .font(.caption2)
+            .foregroundStyle(store.officialError == nil ? Color.secondary : Color.orange)
+            .lineLimit(1)
+        } else {
+          Text("· Local Codex")
+            .font(.caption2)
+            .foregroundStyle(.secondary)
         }
         Spacer()
         officialRefreshButton
@@ -76,7 +75,7 @@ struct UsageSectionView: View {
       ),
       observedAt: observedAt
     )
-    return VStack(alignment: .leading, spacing: 4) {
+    return VStack(alignment: .leading, spacing: 3) {
       HStack(alignment: .firstTextBaseline) {
         Text(limit.name)
           .font(.caption)
@@ -112,15 +111,10 @@ struct UsageSectionView: View {
   }
 
   private var compactAPICost: some View {
-    VStack(alignment: .leading, spacing: 4) {
+    VStack(alignment: .leading, spacing: 2) {
       HStack(alignment: .firstTextBaseline, spacing: 8) {
-        VStack(alignment: .leading, spacing: 1) {
-          Text("API-price estimate")
-            .font(.caption.weight(.semibold))
-          Text("This Mac · \(store.settings.apiCostWindow.label.lowercased())")
-            .font(.caption2)
-            .foregroundStyle(.secondary)
-        }
+        Text("API-price estimate")
+          .font(.caption.weight(.semibold))
         Spacer()
         if let estimate = store.apiCostEstimate {
           Text(
@@ -133,7 +127,7 @@ struct UsageSectionView: View {
       }
 
       if let estimate = store.apiCostEstimate {
-        Text(compactAPICostStatus(estimate))
+        Text("\(store.settings.apiCostWindow.label) · \(compactAPICostStatus(estimate))")
           .font(.caption2)
           .foregroundStyle(store.apiCostError == nil ? Color.secondary : Color.orange)
           .lineLimit(1)
@@ -147,14 +141,10 @@ struct UsageSectionView: View {
   }
 
   private var compactForecast: some View {
-    VStack(alignment: .leading, spacing: 4) {
+    VStack(alignment: .leading, spacing: 2) {
       HStack(alignment: .firstTextBaseline, spacing: 8) {
-        VStack(alignment: .leading, spacing: 1) {
-          Text("Reset forecast")
-            .font(.caption.weight(.semibold))
-          Link("Will Codex Reset? · third party", destination: ResetForecast.sourceURL)
-            .font(.caption2)
-        }
+        Text("Reset forecast")
+          .font(.caption.weight(.semibold))
         Spacer()
         if let forecast = store.forecast {
           Text(forecast.resetAnnounced ? "Announced" : "\(Int(forecast.score.rounded()))%")
@@ -165,9 +155,8 @@ struct UsageSectionView: View {
       }
 
       if let forecast = store.forecast {
-        Text(compactForecastStatus(forecast))
+        Link(compactForecastStatus(forecast), destination: ResetForecast.sourceURL)
           .font(.caption2)
-          .foregroundStyle(store.forecastError == nil ? Color.secondary : Color.orange)
           .lineLimit(1)
       } else if let error = store.forecastError {
         unavailableRow(error)
@@ -209,7 +198,7 @@ struct UsageSectionView: View {
       forecast.fetchedAt.map {
         " · updated \(RelativeTimeLabel.string(for: $0, relativeTo: presentationDate))"
       } ?? ""
-    return "Chance of reset in the next 48h\(freshness)"
+    return "Will Codex Reset? · next 48h\(freshness)"
   }
 
   private var apiEquivalentCost: some View {

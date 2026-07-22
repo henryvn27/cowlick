@@ -8,7 +8,7 @@ struct SessionListView: View {
   var scrollsInternally = true
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 4) {
+    VStack(alignment: .leading, spacing: 3) {
       if !isAttached {
         Text("Sessions")
           .font(.system(size: 12, weight: .semibold))
@@ -18,7 +18,7 @@ struct SessionListView: View {
       sessionViewport
     }
     .padding(.horizontal, 14)
-    .padding(.vertical, 5)
+    .padding(.vertical, 4)
   }
 
   @ViewBuilder

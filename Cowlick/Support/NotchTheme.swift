@@ -19,7 +19,8 @@ enum NotchTheme {
 
   static let compactSize = CGSize(width: 170, height: 34)
   static let maximumApprovalSize = CGSize(width: 380, height: 170)
-  static let attachedWingWidth: CGFloat = 48
+  static let attachedWingWidth: CGFloat = 42
+  static let expandedInformationWidth: CGFloat = 332
   static let compactRadius: CGFloat = 14
   static let expandedBottomRadius: CGFloat = 22
   static let floatingRadius: CGFloat = 12
@@ -30,11 +31,11 @@ enum NotchTheme {
   static let surfaceOpenDuration = 0.32
   static let surfaceCloseDuration = 0.24
   static let maximumVisibleSessionCount = 3
-  static let sessionRowHeight: CGFloat = 30
-  static let sessionRowSpacing: CGFloat = 4
-  static let sessionListVerticalPadding: CGFloat = 10
+  static let sessionRowHeight: CGFloat = 28
+  static let sessionRowSpacing: CGFloat = 3
+  static let sessionListVerticalPadding: CGFloat = 8
   static let actionBarHeight: CGFloat = 28
-  static let informationHeaderHeight: CGFloat = 44
+  static let informationHeaderHeight: CGFloat = 40
   // SwiftUI owns the visible surface morph. AppKit only prepares the opening
   // host and retains it until closing finishes; hit testing follows the
   // requested compact or expanded surface rather than the transparent host.
@@ -81,7 +82,7 @@ enum NotchTheme {
     let visibleCount = min(max(0, sessionCount), maximumVisibleSessionCount)
     let rowSpacing = CGFloat(max(0, visibleCount - 1)) * sessionRowSpacing
     return CGSize(
-      width: 360,
+      width: expandedInformationWidth,
       height: sessionListVerticalPadding + CGFloat(visibleCount) * sessionRowHeight + rowSpacing
         + actionBarHeight
     )
@@ -107,14 +108,14 @@ enum NotchTheme {
       : sessionListVerticalPadding + CGFloat(visibleCount) * sessionRowHeight + sessionSpacing
     let estimatedInformationHeight =
       (showsCurrentWork ? informationHeaderHeight : 0)
-      + (showsOfficialUsage ? 140 : 0)
-      + (showsAPICostEstimate ? 44 : 0)
-      + (showsForecast ? 44 : 0)
-      + (showsBilling ? 50 : 0)
+      + (showsOfficialUsage ? 116 : 0)
+      + (showsAPICostEstimate ? 38 : 0)
+      + (showsForecast ? 38 : 0)
+      + (showsBilling ? 42 : 0)
       + sessionHeight
     let minimumInformationHeight: CGFloat = showsIntegrationAlerts ? 80 : 0
     return CGSize(
-      width: 360,
+      width: expandedInformationWidth,
       height: max(estimatedInformationHeight, minimumInformationHeight) + actionBarHeight
     )
   }
