@@ -68,8 +68,13 @@ private let specifications = [
     filename: "working.png", arguments: ["--simulate-notch", "--state=working"],
     minimumLogicalSize: CGSize(width: 140, height: 28), settleDelay: 0.25),
   CaptureSpec(
-    filename: "approval.png", arguments: ["--simulate-notch", "--state=approvalRequested"],
-    minimumLogicalSize: CGSize(width: 340, height: 110), settleDelay: 0.35),
+    filename: "approval.png",
+    arguments: [
+      "--simulate-notch", "--state=approvalRequested", "--usage-demo",
+      "--hide-notch-integration-alerts", "--hide-notch-api-cost",
+      "--hide-notch-reset-forecast", "--hide-notch-provider-billing",
+    ],
+    minimumLogicalSize: CGSize(width: 340, height: 110), settleDelay: 1.0),
   CaptureSpec(
     filename: "completed.png", arguments: ["--simulate-notch", "--state=completed"],
     minimumLogicalSize: CGSize(width: 140, height: 28), settleDelay: 0.2),
@@ -79,10 +84,15 @@ private let specifications = [
   CaptureSpec(
     filename: "failed-expanded.png",
     arguments: ["--simulate-notch", "--state=failed", "--expanded"],
-    minimumLogicalSize: CGSize(width: 320, height: 90), settleDelay: 0.3),
+    minimumLogicalSize: CGSize(width: 240, height: 90), settleDelay: 0.3),
   CaptureSpec(
-    filename: "multi-session.png", arguments: ["--simulate-notch", "--state=multiple"],
-    minimumLogicalSize: CGSize(width: 320, height: 100), settleDelay: 0.35),
+    filename: "multi-session.png",
+    arguments: [
+      "--simulate-notch", "--state=multiple", "--usage-demo",
+      "--hide-notch-integration-alerts", "--hide-notch-codex-usage", "--hide-notch-api-cost",
+      "--hide-notch-reset-forecast", "--hide-notch-provider-billing",
+    ],
+    minimumLogicalSize: CGSize(width: 240, height: 100), settleDelay: 0.35),
   CaptureSpec(
     filename: "onboarding.png", arguments: ["--open-onboarding"],
     minimumLogicalSize: CGSize(width: 500, height: 400), settleDelay: 0.5),
@@ -153,8 +163,10 @@ private func captureDisplay(
     .0
 }
 
-private func validateCaptureDisplay(_ display: DisplayGeometry) throws {
-  guard display.safeAreaTopInset < 1 else {
+private func validateCaptureDisplay(
+  _ display: DisplayGeometry, allowNotchedDisplay: Bool = false
+) throws {
+  guard allowNotchedDisplay || display.safeAreaTopInset < 1 else {
     throw CaptureError.notchedDisplay(display.id, display.safeAreaTopInset)
   }
   guard display.backingScaleFactor >= 1.9 else {
@@ -240,7 +252,13 @@ private func run() throws {
   }
   let scriptURL = URL(fileURLWithPath: #filePath)
   let root = scriptURL.deletingLastPathComponent().deletingLastPathComponent()
-  let outputDirectory = root.appendingPathComponent("Assets/Screenshots", isDirectory: true)
+  let outputDirectory =
+    argumentValue("--output-directory").map {
+      URL(fileURLWithPath: $0).standardizedFileURL
+    } ?? root.appendingPathComponent("Assets/Screenshots", isDirectory: true)
+  try FileManager.default.createDirectory(
+    at: outputDirectory, withIntermediateDirectories: true)
+  let allowNotchedDisplay = CommandLine.arguments.contains("--allow-notched-display")
   let stagingDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(
     "CowlickLaunchCapture-\(UUID().uuidString)", isDirectory: true)
   let isolatedHome = stagingDirectory.appendingPathComponent("Home", isDirectory: true)
@@ -279,7 +297,7 @@ private func run() throws {
     }
     let stagedURL = stagingDirectory.appendingPathComponent(specification.filename)
     do {
-      try validateCaptureDisplay(display)
+      try validateCaptureDisplay(display, allowNotchedDisplay: allowNotchedDisplay)
       try capture(window: window, to: stagedURL)
     } catch {
       stop(process)
@@ -292,12 +310,18 @@ private func run() throws {
   for specification in specifications {
     let source = stagingDirectory.appendingPathComponent(specification.filename)
     let destination = outputDirectory.appendingPathComponent(specification.filename)
-    _ = try FileManager.default.replaceItemAt(destination, withItemAt: source)
+    if FileManager.default.fileExists(atPath: destination.path) {
+      _ = try FileManager.default.replaceItemAt(destination, withItemAt: source)
+    } else {
+      try FileManager.default.moveItem(at: source, to: destination)
+    }
   }
   let displayList = captureDisplayIDs.sorted().map(String.init).joined(separator: ", ")
-  print(
-    "Captured \(specifications.count) current Cowlick surfaces at 2x on verified non-notch display \(displayList)."
-  )
+  let displayDescription =
+    allowNotchedDisplay
+    ? "display \(displayList) with notch geometry explicitly allowed"
+    : "verified non-notch display \(displayList)"
+  print("Captured \(specifications.count) current Cowlick surfaces at 2x on \(displayDescription).")
 }
 
 private func runSelfCheck() throws {

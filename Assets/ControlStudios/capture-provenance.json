@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-07-22",
+  "branch": "main",
+  "sourceCommit": "287afff0391b2c4a7fa172acc5558ab68b2766e2",
+  "installedApp": "/Users/henry/Applications/Cowlick.app",
+  "bundleIdentifier": "com.henryvn27.Cowlick",
+  "marketingVersion": "1.0.0",
+  "buildVersion": "1",
+  "appExecutableSHA256": "213adf966e7fe5a77e23700d94ce997d35e19103c9e0931d0c70d53e3bcf972d",
+  "helperExecutableSHA256": "7dabfd9ca96b9039b88555db60f316c794ee8563ce332aeff1f4f2ab3ed1ad79",
+  "display": {
+    "backingScale": 2,
+    "safeAreaTopPoints": 32,
+    "evidence": "physical-notch display"
+  },
+  "recommendedScreenshots": [
+    {
+      "path": "Screenshots/approval.png",
+      "pixels": "760x356",
+      "sha256": "2a875399e49ff3f9357808e512c502191c9bd565e6904de47bed31bad7bb454f"
+    },
+    {
+      "path": "Screenshots/multi-session.png",
+      "pixels": "538x338",
+      "sha256": "93a97a4f2104c1b3046cbb63e9e8cc9a697bcb5f4ba64de9c3bde69feaabdcf5"
+    },
+    {
+      "path": "Screenshots/usage.png",
+      "pixels": "800x1040",
+      "sha256": "7c41d61e55bbe3fe0162c38ae07505d7dbe947dce5f0397eaf8e8d5173aadf31"
+    }
+  ],
+  "icon": {
+    "svgPath": "../AppIcon/cowlick-icon.svg",
+    "svgSHA256": "bd55571186076340c99e8de585a71f38ecca4e19d6597e4822a12f0e8eaeac27",
+    "pngPath": "../AppIcon/cowlick-icon-1024.png",
+    "pngSHA256": "efc0d9bf4e820e78df1f971bc8075cd5097d36aff0a2e4a3404822ec1b52a428"
+  },
+  "styleSources": [
+    "../../Cowlick/Support/NotchTheme.swift",
+    "../../Website/styles.css"
+  ]
+}
