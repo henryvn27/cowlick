@@ -1192,34 +1192,36 @@ final class DiagnosticsTests: XCTestCase {
   }
 
   func testOnboardingDoesNotClaimReadyBeforeCodexTrust() {
-    let unreadyStates: [CodexHookTrustState] = [
-      .notChecked,
+    for state in [
+      CodexHookTrustState.notChecked,
       .needsReview,
       .incomplete,
       .unavailable("Codex unavailable"),
-    ]
-
-    for state in unreadyStates {
+    ] {
       XCTAssertFalse(OnboardingView.canContinueFromIntegration(trustState: state))
       XCTAssertEqual(
-        OnboardingView.finishTitle(trustState: state),
-        "Codex review still needed."
-      )
+        OnboardingView.finishTitle(trustState: state), "Cowlick is ready in limited mode.")
+      XCTAssertEqual(OnboardingView.completionButtonTitle(trustState: state), "Start Cowlick")
     }
     XCTAssertTrue(OnboardingView.canContinueFromIntegration(trustState: .trusted))
-    XCTAssertEqual(OnboardingView.finishTitle(trustState: .trusted), "You're ready.")
+    XCTAssertEqual(OnboardingView.finishTitle(trustState: .trusted), "Cowlick is ready.")
+    XCTAssertEqual(OnboardingView.completionButtonTitle(trustState: .trusted), "Start Cowlick")
   }
 
-  func testDeferredOnboardingExplainsLocalStatusAndApprovalBoundary() {
+  func testReviewOnboardingExplainsOneActionHandoffAndApprovalBoundary() {
     let detail = OnboardingView.finishDetail(
       trustState: .needsReview,
       integrationDeferred: true
     )
+    let instruction = OnboardingView.finishInstruction(trustState: .needsReview)
 
-    XCTAssertTrue(detail.contains("finish later"), detail)
-    XCTAssertTrue(detail.contains("show local activity now"), detail)
-    XCTAssertTrue(detail.contains("approval actions remain in Codex"), detail)
-    XCTAssertFalse(detail.contains("ready"), detail)
+    XCTAssertTrue(detail.contains("Usage and local activity"), detail)
+    XCTAssertTrue(detail.contains("Approval actions"), detail)
+    XCTAssertFalse(detail.contains("fully connected"), detail)
+    XCTAssertTrue(instruction.contains("Paste the copied command"), instruction)
+    XCTAssertTrue(instruction.contains("approve Cowlick once"), instruction)
+    XCTAssertTrue(instruction.contains("checks automatically"), instruction)
+    XCTAssertTrue(instruction.contains("then return"), instruction)
   }
 
   func testDiagnosticsSanitizesEventScalarsBeforeAddingSeparators() {

@@ -7,7 +7,12 @@ struct CowlickApp: App {
   private let services = AppServices.shared
 
   var body: some Scene {
-    MenuBarExtra {
+    MenuBarExtra(
+      isInserted: Binding(
+        get: { services.presentationCoordinator.showsMenuBar },
+        set: { _ in }
+      )
+    ) {
       MenuBarContentView(services: services)
     } label: {
       MenuBarLabelView(

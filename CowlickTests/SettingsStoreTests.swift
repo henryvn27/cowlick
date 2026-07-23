@@ -4,6 +4,18 @@ import XCTest
 
 @MainActor
 final class SettingsStoreTests: XCTestCase {
+  @MainActor
+  func testUITestingSettingsDoNotReuseTheRealApplicationDefaults() {
+    let suite = "CowlickUITestingSettingsTests-\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suite)!
+    defaults.set(true, forKey: SettingsStore.Key.reducedAnimation)
+
+    let settings = AppServices.makeUITestingSettingsStore(suiteName: suite)
+
+    XCTAssertFalse(settings.reducedAnimation)
+    defaults.removePersistentDomain(forName: suite)
+  }
+
   func testPrivacyDefaultsAndPersistence() {
     let suite = "com.henryvn27.CowlickTests.Settings.\(UUID().uuidString)"
     let defaults = UserDefaults(suiteName: suite)!
@@ -20,26 +32,62 @@ final class SettingsStoreTests: XCTestCase {
     XCTAssertEqual(first.apiCostWindow, .last30Days)
     XCTAssertFalse(first.showResetForecast)
     XCTAssertEqual(first.usageMetricPreference, .remaining)
-    XCTAssertEqual(first.menuBarPresentation, .iconAndDetails)
+    XCTAssertTrue(first.showFiveHourQuotaWindow)
+    XCTAssertTrue(first.showWeeklyQuotaWindow)
+    XCTAssertTrue(first.showSparkQuotaWindow)
+    XCTAssertEqual(first.notchLeftWingMetric, .quotaPercentage)
+    XCTAssertEqual(first.notchSecondaryMetric, .blank)
+    XCTAssertTrue(first.showNotchCurrentWork)
+    XCTAssertTrue(first.showNotchIntegrationAlerts)
+    XCTAssertTrue(first.showNotchCodexUsage)
+    XCTAssertTrue(first.showNotchAPICostEstimate)
+    XCTAssertTrue(first.showNotchResetForecast)
+    XCTAssertTrue(first.showNotchProviderBilling)
+    XCTAssertEqual(first.presentationPreference, .automatic)
+    XCTAssertEqual(first.menuBarPresentation, .percentageOnly)
     XCTAssertFalse(first.integrationIntentionallyRemoved)
     first.showPromptPreviews = true
     first.showChatNames = false
     first.approvalTimeout = 35
     first.usageMetricPreference = .used
+    first.showFiveHourQuotaWindow = false
+    first.showWeeklyQuotaWindow = false
+    first.showSparkQuotaWindow = false
+    first.notchLeftWingMetric = .resetCountdown
+    first.notchSecondaryMetric = .paceBalance
     first.showAPICostEstimate = true
     first.apiCostWindow = .today
     first.menuBarPresentation = .percentageOnly
+    first.presentationPreference = .menuBar
     first.integrationIntentionallyRemoved = true
+    first.showNotchCurrentWork = false
+    first.showNotchIntegrationAlerts = false
+    first.showNotchCodexUsage = false
+    first.showNotchAPICostEstimate = false
+    first.showNotchResetForecast = false
+    first.showNotchProviderBilling = false
 
     let second = SettingsStore(defaults: defaults)
     XCTAssertFalse(second.showChatNames)
     XCTAssertTrue(second.showPromptPreviews)
     XCTAssertEqual(second.approvalTimeout, 35)
     XCTAssertEqual(second.usageMetricPreference, .used)
+    XCTAssertFalse(second.showFiveHourQuotaWindow)
+    XCTAssertFalse(second.showWeeklyQuotaWindow)
+    XCTAssertFalse(second.showSparkQuotaWindow)
+    XCTAssertEqual(second.notchLeftWingMetric, .resetCountdown)
+    XCTAssertEqual(second.notchSecondaryMetric, .paceBalance)
     XCTAssertTrue(second.showAPICostEstimate)
     XCTAssertEqual(second.apiCostWindow, .today)
     XCTAssertEqual(second.menuBarPresentation, .percentageOnly)
+    XCTAssertEqual(second.presentationPreference, .menuBar)
     XCTAssertTrue(second.integrationIntentionallyRemoved)
+    XCTAssertFalse(second.showNotchCurrentWork)
+    XCTAssertFalse(second.showNotchIntegrationAlerts)
+    XCTAssertFalse(second.showNotchCodexUsage)
+    XCTAssertFalse(second.showNotchAPICostEstimate)
+    XCTAssertFalse(second.showNotchResetForecast)
+    XCTAssertFalse(second.showNotchProviderBilling)
   }
 
   func testResetRestoresSafeDefaults() {
@@ -53,8 +101,19 @@ final class SettingsStoreTests: XCTestCase {
     settings.apiCostWindow = .monthToDate
     settings.showResetForecast = true
     settings.usageMetricPreference = .used
+    settings.showFiveHourQuotaWindow = false
+    settings.showWeeklyQuotaWindow = false
+    settings.showSparkQuotaWindow = false
+    settings.notchLeftWingMetric = .projectedRunway
+    settings.notchSecondaryMetric = .resetProbability
     settings.menuBarPresentation = .statusAndPercentage
     settings.integrationIntentionallyRemoved = true
+    settings.showNotchCurrentWork = false
+    settings.showNotchIntegrationAlerts = false
+    settings.showNotchCodexUsage = false
+    settings.showNotchAPICostEstimate = false
+    settings.showNotchResetForecast = false
+    settings.showNotchProviderBilling = false
     settings.reset()
 
     XCTAssertTrue(settings.showChatNames)
@@ -66,8 +125,20 @@ final class SettingsStoreTests: XCTestCase {
     XCTAssertEqual(settings.apiCostWindow, .last30Days)
     XCTAssertFalse(settings.showResetForecast)
     XCTAssertEqual(settings.usageMetricPreference, .remaining)
-    XCTAssertEqual(settings.menuBarPresentation, .iconAndDetails)
+    XCTAssertTrue(settings.showFiveHourQuotaWindow)
+    XCTAssertTrue(settings.showWeeklyQuotaWindow)
+    XCTAssertTrue(settings.showSparkQuotaWindow)
+    XCTAssertEqual(settings.notchLeftWingMetric, .quotaPercentage)
+    XCTAssertEqual(settings.notchSecondaryMetric, .blank)
+    XCTAssertEqual(settings.presentationPreference, .automatic)
+    XCTAssertEqual(settings.menuBarPresentation, .percentageOnly)
     XCTAssertFalse(settings.integrationIntentionallyRemoved)
+    XCTAssertTrue(settings.showNotchCurrentWork)
+    XCTAssertTrue(settings.showNotchIntegrationAlerts)
+    XCTAssertTrue(settings.showNotchCodexUsage)
+    XCTAssertTrue(settings.showNotchAPICostEstimate)
+    XCTAssertTrue(settings.showNotchResetForecast)
+    XCTAssertTrue(settings.showNotchProviderBilling)
   }
 
   func testUnhealthyIntegrationReopensOnboardingUntilRepair() {
@@ -109,13 +180,57 @@ final class SettingsStoreTests: XCTestCase {
     XCTAssertEqual(SettingsStore(defaults: defaults).usageMetricPreference, .remaining)
   }
 
-  func testInvalidMenuBarPresentationFallsBackToIconAndDetails() {
+  func testInvalidNotchSecondaryMetricFallsBackToBlank() {
+    let suite = "com.henryvn27.CowlickTests.Settings.\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suite)!
+    defaults.removePersistentDomain(forName: suite)
+    defaults.set("horoscope", forKey: SettingsStore.Key.notchSecondaryMetric)
+
+    XCTAssertEqual(SettingsStore(defaults: defaults).notchSecondaryMetric, .blank)
+  }
+
+  func testExistingRightWingPreferenceIsPreservedWhenLeftWingPreferenceIsIntroduced() {
+    let suite = "com.henryvn27.CowlickTests.Settings.\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suite)!
+    defaults.removePersistentDomain(forName: suite)
+    defaults.set(
+      NotchWingMetric.paceBalance.rawValue,
+      forKey: SettingsStore.Key.notchSecondaryMetric)
+
+    let settings = SettingsStore(defaults: defaults)
+
+    XCTAssertEqual(settings.notchLeftWingMetric, .quotaPercentage)
+    XCTAssertEqual(settings.notchSecondaryMetric, .paceBalance)
+  }
+
+  func testInvalidMenuBarPresentationFallsBackToPercentageOnly() {
     let suite = "com.henryvn27.CowlickTests.Settings.\(UUID().uuidString)"
     let defaults = UserDefaults(suiteName: suite)!
     defaults.removePersistentDomain(forName: suite)
     defaults.set("hologram", forKey: SettingsStore.Key.menuBarPresentation)
 
-    XCTAssertEqual(SettingsStore(defaults: defaults).menuBarPresentation, .iconAndDetails)
+    XCTAssertEqual(SettingsStore(defaults: defaults).menuBarPresentation, .percentageOnly)
+  }
+
+  func testLegacyHiddenNonNotchOverlayMigratesToMenuBar() {
+    let suite = "com.henryvn27.CowlickTests.Settings.\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suite)!
+    defaults.removePersistentDomain(forName: suite)
+    defaults.set(false, forKey: SettingsStore.Key.legacyShowOnNonNotch)
+
+    let settings = SettingsStore(defaults: defaults)
+
+    XCTAssertEqual(settings.presentationPreference, .menuBar)
+    XCTAssertEqual(defaults.string(forKey: SettingsStore.Key.presentationPreference), "menuBar")
+  }
+
+  func testLegacyShownNonNotchOverlayMigratesToAutomatic() {
+    let suite = "com.henryvn27.CowlickTests.Settings.\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suite)!
+    defaults.removePersistentDomain(forName: suite)
+    defaults.set(true, forKey: SettingsStore.Key.legacyShowOnNonNotch)
+
+    XCTAssertEqual(SettingsStore(defaults: defaults).presentationPreference, .automatic)
   }
 
   func testLegacyPreferencesMigrateOnceWithoutOverwritingCurrentValues() {

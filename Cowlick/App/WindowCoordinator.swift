@@ -16,7 +16,16 @@ final class WindowCoordinator {
 
   func configure(services: AppServices) {
     self.services = services
-    notchPanelController = NotchPanelController(store: services.sessionStore)
+    notchPanelController = NotchPanelController(services: services)
+    services.presentationCoordinator.routeWillChange = { [weak self] previous, next in
+      guard case .notch = previous, case .menuBar = next else { return }
+      self?.notchPanelController?.setPresentationEnabled(false)
+    }
+    services.presentationCoordinator.routeDidChange = { [weak self] _, next in
+      self?.notchPanelController?.setPresentationEnabled(!next.usesMenuBar)
+    }
+    notchPanelController?.setPresentationEnabled(
+      !services.presentationCoordinator.activePresentation.usesMenuBar)
     notchPanelController?.updatePresentation()
   }
 
@@ -113,14 +122,18 @@ final class WindowCoordinator {
     window.title = title
     window.contentMinSize = CGSize(width: size.width * 0.8, height: size.height * 0.8)
     window.isReleasedWhenClosed = false
-    window.center()
     window.contentViewController = NSHostingController(rootView: rootView)
+    // Installing an unconstrained SwiftUI hosting controller can replace the requested frame with
+    // its ideal size. Reassert the caller's initial content size, then center that final frame.
+    window.setContentSize(size)
+    window.center()
     return NSWindowController(window: window)
   }
 
   private func present(_ window: NSWindow) {
     NSApp.activate(ignoringOtherApps: true)
     window.makeKeyAndOrderFront(nil)
+    window.orderFrontRegardless()
   }
 }
 
@@ -138,7 +151,7 @@ private struct UsageCaptureView: View {
       showAPICostEstimate: true,
       showForecast: true,
       metricPreference: .remaining,
-      refresh: { services.usageStore.refreshOfficial(force: true) }
+      density: .detailed
     )
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     .background(.regularMaterial)

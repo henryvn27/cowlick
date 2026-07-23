@@ -19,20 +19,56 @@ final class CowlickUITests: XCTestCase {
       app.buttons["Polish release onboarding, Scoutly, Working"].waitForExistence(timeout: 3))
   }
 
-  func testSimulatedNotchExpandsNaturallyOnHover() {
+  func testSimulatedNotchHoverExpandsRecentActivity() {
     let app = launch(
-      arguments: ["--simulate-notch", "--state=working"], autoHoverEnabled: true)
+      arguments: ["--simulate-notch", "--usage-demo", "--state=working"],
+      autoHoverEnabled: true)
     let expandedSession = sessionRow(in: app, id: "demo-visual-state")
-    if expandedSession.waitForExistence(timeout: 1) {
-      return
-    }
-
-    let island = app.buttons["Polish release onboarding, Scoutly, Working"]
+    let island = app.buttons["compact-notch-button"]
     XCTAssertTrue(island.waitForExistence(timeout: 3))
 
-    island.hover()
-
+    // Hover a visible wing, not the physical camera housing in the center of a real notch.
+    island.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.5)).hover()
     XCTAssertTrue(expandedSession.waitForExistence(timeout: 2))
+  }
+
+  func testWorkingCompactNotchShowsQuotaWithoutVisibleTaskCopy() {
+    let app = launch(
+      arguments: ["--simulate-notch", "--usage-demo", "--state=working"])
+    let island = app.buttons["compact-notch-button"]
+    XCTAssertTrue(island.waitForExistence(timeout: 3))
+    XCTAssertTrue(wait(for: island, labelContaining: "Codex quota, 22 percent remaining"))
+    XCTAssertFalse(app.staticTexts["Polish release onboarding"].exists)
+    XCTAssertFalse(app.staticTexts["Scoutly"].exists)
+    let screenshot = XCTAttachment(screenshot: island.screenshot())
+    screenshot.name = "quiet-compact-working"
+    screenshot.lifetime = .keepAlways
+    add(screenshot)
+  }
+
+  func testCompletedCompactNotchShowsTemporaryIndicatorAndClickRevealsDetails() {
+    let app = launch(
+      arguments: ["--simulate-notch", "--usage-demo", "--state=completed"])
+    let indicator = app.buttons["compact-completion-indicator"]
+    XCTAssertTrue(indicator.waitForExistence(timeout: 3))
+
+    // The center of an attached surface is occupied by the physical camera housing. Exercise the
+    // visible right wing where the completion mark is actually rendered.
+    indicator.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).click()
+
+    XCTAssertTrue(indicator.waitForNonExistence(timeout: 2))
+    XCTAssertTrue(sessionRow(in: app, id: "demo-visual-state").waitForExistence(timeout: 2))
+  }
+
+  func testScrollDoesNotExpandCompactNotch() {
+    let app = launch(
+      arguments: ["--simulate-notch", "--usage-demo", "--state=working"])
+    let island = app.buttons["compact-notch-button"]
+    XCTAssertTrue(island.waitForExistence(timeout: 3))
+
+    island.scroll(byDeltaX: 0, deltaY: 60)
+
+    XCTAssertFalse(sessionRow(in: app, id: "demo-visual-state").waitForExistence(timeout: 0.5))
   }
 
   func testApprovalActionsAreAccessibleAndAllowIsNotDefault() {
@@ -79,7 +115,7 @@ final class CowlickUITests: XCTestCase {
 
   func testCompletedResultPreviewRendersWhenEnabled() {
     let app = launch(
-      arguments: ["--state=completed", "--expanded", "--show-result-previews"])
+      arguments: ["--simulate-notch", "--state=completed", "--expanded", "--show-result-previews"])
     let completed = sessionRow(in: app, id: "demo-visual-state")
     XCTAssertTrue(completed.waitForExistence(timeout: 3))
     XCTAssertEqual(
@@ -88,13 +124,12 @@ final class CowlickUITests: XCTestCase {
   }
 
   func testFailedStateIsAccessible() {
-    let app = launch(arguments: ["--state=failed", "--expanded"])
+    let app = launch(arguments: ["--simulate-notch", "--state=failed", "--expanded"])
     let failedSession = sessionRow(in: app, id: "demo-visual-state")
     XCTAssertTrue(failedSession.waitForExistence(timeout: 3))
     XCTAssertEqual(
       failedSession.label,
       "Repair bridge health, Scoutly, Failed, Bridge self-test failed")
-    XCTAssertTrue(app.buttons["Open Diagnostics"].exists)
   }
 
   func testMultipleSessionListIsAccessible() {
@@ -108,8 +143,88 @@ final class CowlickUITests: XCTestCase {
 
   }
 
+  func testOverflowSessionListKeepsEndActionsAtTheLogicalBottom() {
+    let app = launch(state: "overflow")
+    let scrollView = app.scrollViews["session-scroll-view"]
+    XCTAssertTrue(scrollView.waitForExistence(timeout: 3))
+
+    scrollView.scroll(byDeltaX: 0, deltaY: 80)
+
+    XCTAssertTrue(sessionRow(in: app, id: "demo-overflow-1").waitForExistence(timeout: 2))
+    let endActions = app.descendants(matching: .any)
+      .matching(identifier: "notch-end-actions").firstMatch
+    XCTAssertTrue(endActions.waitForExistence(timeout: 2))
+    XCTAssertGreaterThanOrEqual(endActions.frame.minY, scrollView.frame.maxY - 1)
+  }
+
+  func testExpandedNotchIncludesMenuBarInformation() {
+    let app = launch(
+      arguments: [
+        "--simulate-notch", "--usage-demo", "--billing-demo", "--state=working", "--expanded",
+      ])
+
+    XCTAssertTrue(
+      app.descendants(matching: .any).matching(identifier: "notch-activity-header").firstMatch
+        .waitForExistence(timeout: 3))
+    XCTAssertTrue(app.staticTexts["Codex quota"].exists)
+    XCTAssertTrue(app.staticTexts["API-price estimate"].exists)
+    XCTAssertTrue(app.staticTexts["Reset likelihood"].exists)
+    XCTAssertTrue(app.staticTexts["API billing"].waitForExistence(timeout: 3))
+    XCTAssertTrue(
+      app.descendants(matching: .any).matching(identifier: "provider-billing-account").firstMatch
+        .exists)
+    XCTAssertFalse(app.popUpButtons["provider-billing-account"].exists)
+    XCTAssertFalse(app.staticTexts["Platform"].exists)
+    let compactHeader = app.buttons["compact-notch-button"]
+    let settings = app.buttons["Settings"]
+    XCTAssertTrue(compactHeader.exists)
+    XCTAssertTrue(settings.exists)
+    let quit = app.buttons["Quit"]
+    XCTAssertTrue(quit.exists)
+    XCTAssertLessThanOrEqual(compactHeader.frame.width, 300)
+    XCTAssertGreaterThanOrEqual(quit.frame.minY, compactHeader.frame.maxY)
+  }
+
+  func testExpandedNotchContentCanBeHidden() {
+    let app = launch(
+      arguments: [
+        "--simulate-notch", "--usage-demo", "--billing-demo", "--state=working", "--expanded",
+        "--hide-notch-current-work", "--hide-notch-integration-alerts",
+        "--hide-notch-codex-usage", "--hide-notch-api-cost",
+        "--hide-notch-reset-forecast", "--hide-notch-provider-billing",
+      ])
+
+    XCTAssertTrue(app.buttons["Settings"].waitForExistence(timeout: 3))
+    XCTAssertFalse(
+      app.descendants(matching: .any).matching(identifier: "notch-activity-header").firstMatch
+        .exists)
+    XCTAssertFalse(sessionRow(in: app, id: "demo-visual-state").exists)
+    XCTAssertFalse(app.staticTexts["Codex quota"].exists)
+    XCTAssertFalse(app.staticTexts["API-price estimate"].exists)
+    XCTAssertFalse(app.staticTexts["Reset likelihood"].exists)
+    XCTAssertFalse(app.staticTexts["API billing"].exists)
+    XCTAssertFalse(
+      app.descendants(matching: .any).matching(identifier: "codex-integration-attention")
+        .firstMatch.exists)
+    XCTAssertTrue(app.buttons["Quit"].exists)
+  }
+
+  func testExpandedNotchActionPaddingIsClickable() {
+    let app = launch(state: "multiple")
+    let primarySession = sessionRow(in: app, id: "demo-primary")
+    let settings = app.buttons["Settings"]
+    XCTAssertTrue(primarySession.waitForExistence(timeout: 3))
+    XCTAssertTrue(settings.waitForExistence(timeout: 3))
+    XCTAssertLessThanOrEqual(primarySession.frame.maxY, settings.frame.minY)
+    XCTAssertGreaterThanOrEqual(settings.frame.height, 27)
+
+    settings.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.95)).click()
+
+    XCTAssertTrue(app.staticTexts["Appearance"].waitForExistence(timeout: 3))
+  }
+
   func testChatNamesCanBeHiddenWithoutChangingSessionState() {
-    let app = launch(arguments: ["--state=working", "--hide-chat-names"])
+    let app = launch(arguments: ["--simulate-notch", "--state=working", "--hide-chat-names"])
 
     XCTAssertTrue(app.buttons["Scoutly, Working"].waitForExistence(timeout: 3))
     XCTAssertFalse(app.staticTexts["Polish release onboarding"].exists)
@@ -118,7 +233,8 @@ final class CowlickUITests: XCTestCase {
   func testOnboardingOpens() {
     let app = launch(arguments: ["--open-onboarding"])
     XCTAssertTrue(
-      app.staticTexts["Codex status, at the notch."].waitForExistence(timeout: 3))
+      app.staticTexts["Choose where Cowlick lives."].waitForExistence(timeout: 3))
+    XCTAssertTrue(app.staticTexts["Step 1 of 3"].exists)
   }
 
   func testSettingsOpens() {
@@ -126,9 +242,30 @@ final class CowlickUITests: XCTestCase {
     XCTAssertTrue(app.staticTexts["Appearance"].waitForExistence(timeout: 3))
   }
 
+  func testSettingsExposesExpandedNotchContentControls() {
+    let app = launch(arguments: ["--open-settings"])
+    let identifiers = [
+      "settings-notch-current-work",
+      "settings-notch-integration-alerts",
+      "settings-notch-codex-usage",
+      "settings-notch-api-cost",
+      "settings-notch-reset-forecast",
+      "settings-notch-provider-billing",
+    ]
+
+    for identifier in identifiers {
+      XCTAssertTrue(
+        app.descendants(matching: .any).matching(identifier: identifier).firstMatch
+          .waitForExistence(timeout: 3),
+        "Missing expanded-notch setting: \(identifier)"
+      )
+    }
+  }
+
   func testAccountsSettingsOpens() {
     let app = launch(arguments: ["--open-settings"])
-    let accountsTab = app.descendants(matching: .any).matching(identifier: "Accounts").firstMatch
+    let accountsTab = app.descendants(matching: .any)
+      .matching(identifier: "settings-accounts-tab").firstMatch
     XCTAssertTrue(accountsTab.waitForExistence(timeout: 3))
 
     accountsTab.click()
@@ -181,7 +318,7 @@ final class CowlickUITests: XCTestCase {
   }
 
   private func launch(state: String) -> XCUIApplication {
-    launch(arguments: ["--state=\(state)"])
+    launch(arguments: ["--simulate-notch", "--state=\(state)"])
   }
 
   private func launch(
@@ -201,5 +338,15 @@ final class CowlickUITests: XCTestCase {
 
   private func sessionRow(in app: XCUIApplication, id: String) -> XCUIElement {
     app.descendants(matching: .any).matching(identifier: "session-row-\(id)").firstMatch
+  }
+
+  private func wait(
+    for element: XCUIElement,
+    labelContaining expectedValue: String,
+    timeout: TimeInterval = 3
+  ) -> Bool {
+    let predicate = NSPredicate(format: "label CONTAINS %@", expectedValue)
+    let expectation = XCTNSPredicateExpectation(predicate: predicate, object: element)
+    return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
   }
 }

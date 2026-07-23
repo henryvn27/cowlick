@@ -43,6 +43,8 @@ final class SessionStore {
   private var latestSubagentBoundarySequence: [String: UInt64] = [:]
   private var latestSubagentEventSequence: [SubagentOrderingKey: UInt64] = [:]
   private var locallyObservedTurns: [String: String] = [:]
+  private var unreadCompletionSessionIDs: Set<String> = []
+  private var capsLockAttentionPattern: CapsLockPattern?
   private var chatTitleRefreshGeneration: UInt64 = 0
   var isExpanded = false
   var presentationDidChange: (() -> Void)?
@@ -278,12 +280,14 @@ final class SessionStore {
 
   func toggleExpanded() {
     isExpanded.toggle()
+    if isExpanded { markVisibleCompletionsRead() }
     notifyPresentationChanged()
   }
 
   func expand() {
     guard !sessionSummaries.isEmpty, !isExpanded else { return }
     isExpanded = true
+    markVisibleCompletionsRead()
     notifyPresentationChanged()
   }
 
@@ -298,6 +302,7 @@ final class SessionStore {
     if case .completed = session.status {
       session.completionVisibleUntil = .distantPast
       sessions[sessionID] = session
+      unreadCompletionSessionIDs.remove(sessionID)
       notifyPresentationChanged()
     }
   }
@@ -316,6 +321,7 @@ final class SessionStore {
     latestSubagentBoundarySequence.removeAll()
     latestSubagentEventSequence.removeAll()
     locallyObservedTurns.removeAll()
+    unreadCompletionSessionIDs.removeAll()
     isExpanded = false
     eventLogger.reset()
     Task.detached(priority: .utility) { LifecycleLedger.clear() }
@@ -507,6 +513,33 @@ final class SessionStore {
     notifyPresentationChanged()
   }
 
+  func testOverflowSessions() {
+    guard canPreviewTestStates else { return }
+    clearLocalDemoState()
+    let now = Date()
+    let demos = [
+      ("demo-overflow-1", "Polish notch motion", "Cowlick"),
+      ("demo-overflow-2", "Verify release hooks", "Scoutly"),
+      ("demo-overflow-3", "Review diagnostics", "ActivityPilot"),
+      ("demo-overflow-4", "Prepare website copy", "Cowlick Web"),
+    ]
+    localDemoSessionIDs.formUnion(demos.map(\.0))
+    for (index, demo) in demos.enumerated() {
+      upsertSession(
+        id: demo.0,
+        turnID: "demo-overflow-turn-\(index + 1)",
+        chatTitle: demoChatTitle(demo.1),
+        projectName: demo.2,
+        cwd: "/Demo/\(demo.2.replacingOccurrences(of: " ", with: ""))",
+        model: "gpt-5.6",
+        status: .working(prompt: demo.1),
+        timestamp: now.addingTimeInterval(Double(index) * 0.01)
+      )
+    }
+    isExpanded = true
+    notifyPresentationChanged()
+  }
+
   private func demoChatTitle(_ value: String) -> String? {
     settings.showChatNames ? value : nil
   }
@@ -644,7 +677,6 @@ final class SessionStore {
     )
     if settings.autoExpandApprovals { isExpanded = true }
     eventLogger.record(event: .approvalRequested, project: projectName)
-    if settings.capsLockEnabled { await capsLockService.start(.approval) }
     notifyPresentationChanged()
 
     let decision = await approvalCoordinator.waitForDecision(for: request)
@@ -702,10 +734,8 @@ final class SessionStore {
     let visibleUntil = visibility.map { Date().addingTimeInterval($0) } ?? .distantFuture
     session.completionVisibleUntil = visibleUntil
     sessions[event.sessionId] = session
+    if shouldSignal { unreadCompletionSessionIDs.insert(event.sessionId) }
     isExpanded = false
-    if shouldSignal, settings.capsLockEnabled {
-      Task { await capsLockService.start(.completion) }
-    }
 
     if let visibility {
       Task { [weak self] in
@@ -984,6 +1014,7 @@ final class SessionStore {
       self.latestSubagentEventSequence = self.latestSubagentEventSequence.filter {
         $0.key.sessionID != sessionID
       }
+      self.unreadCompletionSessionIDs.remove(sessionID)
       self.notifyPresentationChanged()
     }
   }
@@ -1002,6 +1033,39 @@ final class SessionStore {
   }
 
   private func notifyPresentationChanged() {
+    refreshCapsLockAttention()
     presentationDidChange?()
+  }
+
+  func refreshCapsLockAttention(force: Bool = false) {
+    unreadCompletionSessionIDs = unreadCompletionSessionIDs.filter { sessionID in
+      guard let session = sessions[sessionID] else { return false }
+      if case .completed = session.status { return true }
+      return false
+    }
+    let desiredPattern: CapsLockPattern? =
+      if settings.capsLockEnabled, currentApproval != nil {
+        .approval
+      } else if settings.capsLockEnabled, !unreadCompletionSessionIDs.isEmpty {
+        .completion
+      } else {
+        nil
+      }
+    guard force || desiredPattern != capsLockAttentionPattern else { return }
+    capsLockAttentionPattern = desiredPattern
+    Task { [weak self] in
+      guard let self, self.capsLockAttentionPattern == desiredPattern else { return }
+      await self.capsLockService.setPersistentAttention(desiredPattern)
+    }
+  }
+
+  private func markVisibleCompletionsRead() {
+    guard currentApproval == nil else { return }
+    unreadCompletionSessionIDs.subtract(
+      sessions.values.lazy.filter { session in
+        if case .completed = session.status { return true }
+        return false
+      }.map(\.id)
+    )
   }
 }

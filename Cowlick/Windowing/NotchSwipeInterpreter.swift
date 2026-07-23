@@ -1,189 +1,88 @@
 import AppKit
 import SwiftUI
 
-enum NotchSwipeAction: Equatable {
-  case expand
-  case collapse
-}
+enum NotchSurfaceLayout {
+  private static let hoverSlop: CGFloat = 2
 
-enum NotchSwipePhase: Equatable {
-  case began
-  case changed
-  case ended
-  case cancelled
-  case none
-}
-
-struct NotchSwipeInterpreter {
-  let threshold: CGFloat
-  let intentThreshold: CGFloat
-  let dominanceRatio: CGFloat
-
-  private(set) var accumulatedVertical: CGFloat = 0
-  private(set) var accumulatedHorizontal: CGFloat = 0
-  private(set) var hasTriggered = false
-  private var isTracking = false
-  private var intent: Intent = .undecided
-
-  init(
-    threshold: CGFloat = 12,
-    intentThreshold: CGFloat = 4,
-    dominanceRatio: CGFloat = 1.25
-  ) {
-    self.threshold = threshold
-    self.intentThreshold = intentThreshold
-    self.dominanceRatio = dominanceRatio
+  static func interactiveRect(
+    hostSize: CGSize,
+    surfaceSize: CGSize,
+    isFlipped: Bool = true
+  ) -> CGRect {
+    let boundedHeight = min(hostSize.height, surfaceSize.height)
+    return CGRect(
+      x: max(0, (hostSize.width - surfaceSize.width) / 2),
+      y: isFlipped ? 0 : max(0, hostSize.height - surfaceSize.height),
+      width: min(hostSize.width, surfaceSize.width),
+      height: boundedHeight
+    )
   }
 
-  mutating func interpret(
-    phase: NotchSwipePhase,
-    verticalDelta: CGFloat,
-    horizontalDelta: CGFloat,
-    isMomentum: Bool
-  ) -> NotchSwipeAction? {
-    if isMomentum {
-      return nil
-    }
-
-    switch phase {
-    case .began:
-      reset()
-      isTracking = true
-    case .changed, .none:
-      if !isTracking { isTracking = true }
-    case .ended, .cancelled:
-      reset()
-      return nil
-    }
-
-    guard !hasTriggered, intent != .horizontal else { return nil }
-
-    accumulatedVertical += verticalDelta
-    accumulatedHorizontal += horizontalDelta
-
-    if intent == .undecided {
-      let verticalMagnitude = abs(accumulatedVertical)
-      let horizontalMagnitude = abs(accumulatedHorizontal)
-      guard max(verticalMagnitude, horizontalMagnitude) >= intentThreshold else { return nil }
-
-      if verticalMagnitude >= horizontalMagnitude * dominanceRatio {
-        intent = .vertical
-      } else if horizontalMagnitude >= verticalMagnitude * dominanceRatio {
-        intent = .horizontal
-        return nil
-      } else {
-        return nil
-      }
-    }
-
-    guard abs(accumulatedVertical) >= threshold else { return nil }
-
-    hasTriggered = true
-    return accumulatedVertical > 0 ? .expand : .collapse
-  }
-
-  mutating func reset() {
-    accumulatedVertical = 0
-    accumulatedHorizontal = 0
-    hasTriggered = false
-    isTracking = false
-    intent = .undecided
-  }
-
-  private enum Intent: Equatable {
-    case undecided
-    case vertical
-    case horizontal
-  }
-}
-
-enum NotchSwipeEventNormalizer {
-  static func phase(
-    began: Bool,
-    changed: Bool,
-    ended: Bool,
-    cancelled: Bool
-  ) -> NotchSwipePhase {
-    if began { return .began }
-    if changed { return .changed }
-    if ended { return .ended }
-    if cancelled { return .cancelled }
-    return .none
-  }
-
-  static func verticalDelta(
-    reportedDelta: CGFloat,
-    directionInvertedFromDevice: Bool
-  ) -> CGFloat {
-    let preferenceCompensation: CGFloat = directionInvertedFromDevice ? -1 : 1
-    return -reportedDelta * preferenceCompensation
-  }
-
-  static func horizontalDelta(
-    reportedDelta: CGFloat,
-    directionInvertedFromDevice: Bool
-  ) -> CGFloat {
-    let preferenceCompensation: CGFloat = directionInvertedFromDevice ? -1 : 1
-    return reportedDelta * preferenceCompensation
+  static func hoverScreenRect(panelFrame: CGRect, surfaceSize: CGSize) -> CGRect {
+    CGRect(
+      x: panelFrame.midX - surfaceSize.width / 2,
+      y: panelFrame.maxY - surfaceSize.height,
+      width: surfaceSize.width,
+      height: surfaceSize.height
+    ).insetBy(dx: -hoverSlop, dy: -hoverSlop)
   }
 }
 
 @MainActor
 final class NotchHostingView<Content: View>: NSHostingView<Content> {
-  var canInterpretSwipe: () -> Bool = { false }
-  var handleSwipeAction: (NotchSwipeAction) -> Bool = { _ in false }
+  /// Adapted from Ping Island's Apache-2.0 bounded hosting view at
+  /// commit c9148fc6a66a98f62dc1cac8fde415c2be9f2233.
+  var interactiveRect: () -> CGRect = { .zero }
   var handlePointerDown: () -> Void = {}
+  var handlePointerPresenceChange: (Bool) -> Void = { _ in }
+  private var pointerTrackingArea: NSTrackingArea?
 
-  private var swipeInterpreter = NotchSwipeInterpreter()
+  override var isOpaque: Bool { false }
+
+  override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+    true
+  }
+
+  override func hitTest(_ point: NSPoint) -> NSView? {
+    guard interactiveRect().contains(point) else { return nil }
+    return super.hitTest(point)
+  }
 
   override func mouseDown(with event: NSEvent) {
     handlePointerDown()
     super.mouseDown(with: event)
   }
 
-  override func scrollWheel(with event: NSEvent) {
-    guard event.hasPreciseScrollingDeltas, canInterpretSwipe() else {
-      swipeInterpreter.reset()
-      super.scrollWheel(with: event)
+  override func updateTrackingAreas() {
+    super.updateTrackingAreas()
+    if let pointerTrackingArea {
+      removeTrackingArea(pointerTrackingArea)
+    }
+    let rect = interactiveRect()
+    guard !rect.isEmpty else {
+      pointerTrackingArea = nil
       return
     }
-
-    let action = swipeInterpreter.interpret(
-      phase: Self.phase(from: event.phase),
-      verticalDelta: Self.deviceVerticalDelta(from: event),
-      horizontalDelta: Self.deviceHorizontalDelta(from: event),
-      isMomentum: !event.momentumPhase.isEmpty
+    let trackingArea = NSTrackingArea(
+      rect: rect,
+      options: [.mouseEnteredAndExited, .activeAlways],
+      owner: self,
+      userInfo: nil
     )
-
-    if let action, handleSwipeAction(action) {
-      return
-    }
-    super.scrollWheel(with: event)
+    addTrackingArea(trackingArea)
+    pointerTrackingArea = trackingArea
   }
 
-  private static func phase(from phase: NSEvent.Phase) -> NotchSwipePhase {
-    NotchSwipeEventNormalizer.phase(
-      began: phase.contains(.began),
-      changed: phase.contains(.changed),
-      ended: phase.contains(.ended),
-      cancelled: phase.contains(.cancelled)
-    )
+  override func mouseEntered(with event: NSEvent) {
+    handlePointerPresenceChange(true)
   }
 
-  // AppKit applies the user's scroll-direction preference to scrollingDelta.
-  // Undo that preference, then invert Y so positive always means a physical
-  // downward finger movement regardless of the Natural Scrolling setting.
-  private static func deviceVerticalDelta(from event: NSEvent) -> CGFloat {
-    NotchSwipeEventNormalizer.verticalDelta(
-      reportedDelta: event.scrollingDeltaY,
-      directionInvertedFromDevice: event.isDirectionInvertedFromDevice
-    )
+  override func mouseExited(with event: NSEvent) {
+    handlePointerPresenceChange(false)
   }
 
-  private static func deviceHorizontalDelta(from event: NSEvent) -> CGFloat {
-    NotchSwipeEventNormalizer.horizontalDelta(
-      reportedDelta: event.scrollingDeltaX,
-      directionInvertedFromDevice: event.isDirectionInvertedFromDevice
-    )
+  func refreshPointerTrackingArea() {
+    updateTrackingAreas()
   }
+
 }

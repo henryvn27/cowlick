@@ -144,11 +144,11 @@ final class NotchGeometryTests: XCTestCase {
   func testCollapsedAccessibilityHintMatchesItsAction() {
     XCTAssertEqual(
       CollapsedIslandView.accessibilityHint(for: .completed(message: nil)),
-      "Dismiss the completed status"
+      "Show recent activity and dismiss the completed indicator"
     )
     XCTAssertEqual(
       CollapsedIslandView.accessibilityHint(for: .working(prompt: nil)),
-      "Expand the status island"
+      "Show recent activity"
     )
     let session = AgentSession(
       id: "session",
@@ -165,6 +165,114 @@ final class NotchGeometryTests: XCTestCase {
         session: session, activeCount: 3, activeSubagentCount: 2),
       "Scoutly, Working, 3 active sessions, 2 active agents"
     )
+  }
+
+  func testCompactCompletionIndicatorOnlyRepresentsCompletedStatus() {
+    XCTAssertTrue(
+      CollapsedIslandView.showsCompletionIndicator(for: .completed(message: nil)))
+    XCTAssertFalse(CollapsedIslandView.showsCompletionIndicator(for: .working(prompt: nil)))
+    XCTAssertFalse(CollapsedIslandView.showsCompletionIndicator(for: .failed(message: nil)))
+    XCTAssertFalse(CollapsedIslandView.showsCompletionIndicator(for: .idle))
+    XCTAssertFalse(CollapsedIslandView.showsCompletionIndicator(for: nil))
+  }
+
+  func testCompactUsageFormattingAndAccessibilityRespectAvailability() {
+    XCTAssertEqual(
+      CollapsedIslandView.usageText(showCodexUsage: true, percent: 72.6),
+      "73%"
+    )
+    XCTAssertNil(CollapsedIslandView.usageText(showCodexUsage: false, percent: 72.6))
+    XCTAssertNil(CollapsedIslandView.usageText(showCodexUsage: true, percent: nil))
+    XCTAssertEqual(
+      CollapsedIslandView.accessibilityLabel(
+        session: nil,
+        activeCount: 0,
+        activeSubagentCount: 0,
+        usageLabel: "Codex, 73 percent remaining",
+        secondaryUsageLabel: "13 percentage points ahead of usage pace"
+      ),
+      "Codex, 73 percent remaining, 13 percentage points ahead of usage pace"
+    )
+  }
+
+  func testNotchMotionUsesPromptHoverAndInterruptibleSurfaceTokens() {
+    XCTAssertEqual(NotchTheme.hoverFeedbackDuration, 0.12)
+    XCTAssertEqual(NotchTheme.hoverOpenDelay, 0.05)
+    XCTAssertEqual(NotchTheme.hoverCloseDelay, 0.16)
+    XCTAssertEqual(NotchTheme.surfaceOpenDuration, 0.32)
+    XCTAssertEqual(NotchTheme.surfaceCloseDuration, 0.24)
+    XCTAssertEqual(NotchTheme.reducedMotionFadeDuration, 0.12)
+  }
+
+  func testSessionListHeightGrowsThroughThreeRowsThenCaps() {
+    XCTAssertEqual(NotchTheme.sessionListSize(sessionCount: 0), CGSize(width: 332, height: 36))
+    XCTAssertEqual(NotchTheme.sessionListSize(sessionCount: 1), CGSize(width: 332, height: 64))
+    XCTAssertEqual(NotchTheme.sessionListSize(sessionCount: 2), CGSize(width: 332, height: 95))
+    XCTAssertEqual(NotchTheme.sessionListSize(sessionCount: 3), CGSize(width: 332, height: 126))
+    XCTAssertEqual(NotchTheme.sessionListSize(sessionCount: 4), CGSize(width: 332, height: 126))
+    XCTAssertEqual(NotchTheme.maximumSessionViewportHeight, 90)
+  }
+
+  func testExpandedInformationHeightAdaptsThenCaps() {
+    func size(
+      sessions: Int,
+      currentWork: Bool = true,
+      integrationAlerts: Bool = false,
+      officialUsage: Bool = false,
+      apiCost: Bool = false,
+      forecast: Bool = false,
+      billing: Bool = false
+    ) -> CGSize {
+      NotchTheme.expandedInformationSize(
+        sessionCount: sessions,
+        showsCurrentWork: currentWork,
+        showsIntegrationAlerts: integrationAlerts,
+        showsOfficialUsage: officialUsage,
+        showsAPICostEstimate: apiCost,
+        showsForecast: forecast,
+        showsBilling: billing
+      )
+    }
+
+    XCTAssertEqual(size(sessions: 0), CGSize(width: 332, height: 68))
+    XCTAssertEqual(size(sessions: 1), CGSize(width: 332, height: 104))
+    XCTAssertEqual(size(sessions: 2), CGSize(width: 332, height: 135))
+    XCTAssertEqual(size(sessions: 3), CGSize(width: 332, height: 166))
+    XCTAssertEqual(size(sessions: 4), CGSize(width: 332, height: 166))
+    XCTAssertEqual(size(sessions: 0, officialUsage: true), CGSize(width: 332, height: 184))
+    XCTAssertEqual(size(sessions: 3, currentWork: false), CGSize(width: 332, height: 28))
+    XCTAssertEqual(
+      size(sessions: 0, currentWork: false, integrationAlerts: true),
+      CGSize(width: 332, height: 108)
+    )
+    XCTAssertEqual(
+      size(sessions: 0, currentWork: false, billing: true),
+      CGSize(width: 332, height: 70)
+    )
+    XCTAssertEqual(
+      size(sessions: 3, officialUsage: true, apiCost: true, forecast: true),
+      CGSize(width: 332, height: 358)
+    )
+    XCTAssertEqual(NotchTheme.maximumExpandedSurfaceHeight, 400)
+  }
+
+  func testAnimatedSurfacePathKeepsItsTopEdgeFixed() {
+    let host = CGRect(x: 0, y: 0, width: 420, height: 240)
+    let compact = TopAnchoredNotchShape(
+      size: CGSize(width: 281, height: 32), topRadius: 0, bottomRadius: 14)
+    let expanded = TopAnchoredNotchShape(
+      size: CGSize(width: 360, height: 156), topRadius: 0, bottomRadius: 22)
+
+    XCTAssertEqual(compact.path(in: host).boundingRect.minY, host.minY, accuracy: 0.001)
+    XCTAssertEqual(expanded.path(in: host).boundingRect.minY, host.minY, accuracy: 0.001)
+    XCTAssertEqual(expanded.path(in: host).boundingRect.maxY, 156, accuracy: 0.001)
+  }
+
+  @MainActor
+  func testNotchHostingViewAcceptsTheFirstMouseClick() {
+    let hostingView = NotchHostingView(rootView: EmptyView())
+
+    XCTAssertTrue(hostingView.acceptsFirstMouse(for: nil))
   }
 
   func testNotchUsesAuxiliaryGapWithoutHardcodedWidth() throws {
@@ -187,16 +295,16 @@ final class NotchGeometryTests: XCTestCase {
     XCTAssertEqual(result.safeAreaTop, 38)
   }
 
-  func testAttachedCompactReservesVisibleWingsBesideCameraGap() {
+  func testAttachedCompactUsesMinimalWingsAndOnlyTheHardwareNotchHeight() {
     let size = NotchTheme.attachedSize(
       baseSize: NotchTheme.compactSize,
       notchGapWidth: 212,
-      safeAreaTop: 38,
+      safeAreaTop: 32,
       expanded: false
     )
 
-    XCTAssertEqual(size.width, 356)
-    XCTAssertEqual(size.height, 38)
+    XCTAssertEqual(size.width, 296)
+    XCTAssertEqual(size.height, 32)
   }
 
   func testAttachedExpansionGrowsDownwardFromStableTopEdge() throws {
@@ -215,11 +323,41 @@ final class NotchGeometryTests: XCTestCase {
     let compact = try XCTUnwrap(resolveNotched(contentSize: compactSize))
     let expanded = try XCTUnwrap(resolveNotched(contentSize: expandedSize))
 
+    XCTAssertEqual(compact.panelFrame.size, compactSize)
+    XCTAssertEqual(expanded.panelFrame.size, expandedSize)
     XCTAssertEqual(compact.panelFrame.maxY, 982)
     XCTAssertEqual(expanded.panelFrame.maxY, compact.panelFrame.maxY)
     XCTAssertGreaterThanOrEqual(expanded.panelFrame.width, compact.panelFrame.width)
     XCTAssertLessThan(expanded.panelFrame.minY, compact.panelFrame.minY)
     XCTAssertEqual(expanded.panelFrame.height, 208)
+  }
+
+  func testAttachedInformationDrawerKeepsCompactWidthWhileOpeningDownward() {
+    let compact = NotchTheme.attachedSize(
+      baseSize: NotchTheme.compactSize,
+      notchGapWidth: 212,
+      safeAreaTop: 38,
+      expanded: false
+    )
+    let information = NotchTheme.attachedSize(
+      baseSize: NotchTheme.expandedInformationSize(
+        sessionCount: 3,
+        showsCurrentWork: true,
+        showsIntegrationAlerts: true,
+        showsOfficialUsage: true,
+        showsAPICostEstimate: true,
+        showsForecast: true,
+        showsBilling: true
+      ),
+      notchGapWidth: 212,
+      safeAreaTop: 38,
+      expanded: true,
+      allowsWidthGrowth: false
+    )
+
+    XCTAssertEqual(compact.width, 296)
+    XCTAssertEqual(information.width, compact.width)
+    XCTAssertEqual(information.height, 438)
   }
 
   func testNonNotchFallbackSitsBelowMenuBar() throws {

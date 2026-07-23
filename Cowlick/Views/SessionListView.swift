@@ -5,71 +5,74 @@ struct SessionListView: View {
   let showPromptPreviews: Bool
   let showResultPreviews: Bool
   let isAttached: Bool
-  let openDiagnostics: () -> Void
+  var scrollsInternally = true
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 4) {
+    VStack(alignment: .leading, spacing: 3) {
       if !isAttached {
         Text("Sessions")
           .font(.system(size: 12, weight: .semibold))
           .foregroundStyle(secondaryTextColor)
           .padding(.bottom, 2)
       }
-      ForEach(sessions.prefix(visibleSessionLimit)) { session in
-        HStack(spacing: 10) {
-          statusIcon(for: session)
-            .frame(width: 16)
-          VStack(alignment: .leading, spacing: 2) {
-            Text(session.displayName)
-              .font(.system(size: 12.5, weight: .medium))
-              .foregroundStyle(primaryTextColor)
-              .lineLimit(1)
-              .truncationMode(.tail)
-            Text(
-              Self.secondaryText(
-                for: session,
-                showPromptPreviews: showPromptPreviews,
-                showResultPreviews: showResultPreviews)
-            )
-            .font(.system(size: 10.5))
-            .foregroundStyle(secondaryTextColor)
-            .lineLimit(1)
-          }
-          Spacer()
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(
-          Self.accessibilityLabel(
+      sessionViewport
+    }
+    .padding(.horizontal, 14)
+    .padding(.vertical, 4)
+  }
+
+  @ViewBuilder
+  private var sessionViewport: some View {
+    if scrollsInternally && sessions.count > NotchTheme.maximumVisibleSessionCount {
+      ScrollView(.vertical, showsIndicators: false) {
+        sessionRows
+      }
+      .frame(height: NotchTheme.maximumSessionViewportHeight)
+      .accessibilityIdentifier("session-scroll-view")
+    } else {
+      sessionRows
+    }
+  }
+
+  private var sessionRows: some View {
+    LazyVStack(alignment: .leading, spacing: NotchTheme.sessionRowSpacing) {
+      ForEach(sessions) { session in
+        sessionRow(for: session)
+      }
+    }
+  }
+
+  private func sessionRow(for session: AgentSession) -> some View {
+    HStack(spacing: 10) {
+      statusIcon(for: session)
+        .frame(width: 16)
+      VStack(alignment: .leading, spacing: 2) {
+        Text(session.displayName)
+          .font(.system(size: 12.5, weight: .medium))
+          .foregroundStyle(primaryTextColor)
+          .lineLimit(1)
+          .truncationMode(.tail)
+        Text(
+          Self.secondaryText(
             for: session,
             showPromptPreviews: showPromptPreviews,
             showResultPreviews: showResultPreviews)
         )
-        .accessibilityIdentifier("session-row-\(session.id)")
+        .font(.system(size: 10.5))
+        .foregroundStyle(secondaryTextColor)
+        .lineLimit(1)
       }
-      if sessions.count > visibleSessionLimit {
-        Text("\(sessions.count - visibleSessionLimit) more in the menu bar")
-          .font(.system(size: 10.5, weight: .medium))
-          .foregroundStyle(secondaryTextColor)
-          .padding(.leading, 26)
-          .accessibilityLabel(
-            "\(sessions.count - visibleSessionLimit) more sessions in the menu bar")
-      }
-      if sessions.contains(where: { session in
-        if case .failed = session.presentationStatus { return true }
-        return false
-      }) {
-        Button("Open Diagnostics", action: openDiagnostics)
-          .buttonStyle(.bordered)
-          .controlSize(.small)
-          .accessibilityHint("Open sanitized Cowlick errors and bridge health")
-      }
+      Spacer()
     }
-    .padding(.horizontal, 14)
-    .padding(.vertical, 10)
-  }
-
-  private var visibleSessionLimit: Int {
-    sessions.count > 3 ? 2 : min(3, sessions.count)
+    .frame(height: NotchTheme.sessionRowHeight)
+    .accessibilityElement(children: .ignore)
+    .accessibilityLabel(
+      Self.accessibilityLabel(
+        for: session,
+        showPromptPreviews: showPromptPreviews,
+        showResultPreviews: showResultPreviews)
+    )
+    .accessibilityIdentifier("session-row-\(session.id)")
   }
 
   private var primaryTextColor: Color {
@@ -149,4 +152,5 @@ struct SessionListView: View {
     }
     return parts.joined(separator: ", ")
   }
+
 }

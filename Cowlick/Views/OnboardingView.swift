@@ -16,18 +16,14 @@ private struct IntegrationInstallResult: Sendable {
 struct OnboardingView: View {
   let services: AppServices
 
-  @Environment(\.dismiss) private var dismiss
+  @Environment(\.scenePhase) private var scenePhase
   @State private var step = 0
   @State private var integrationStatus = "Not checked"
   @State private var integrationInstallState = IntegrationInstallState.notStarted
   @State private var integrationTrust = CodexHookTrustReport.notChecked
-  @State private var capsStatus = "Optional"
-  @State private var integrationTestStatus = "Not tested"
-  @State private var integrationTestInProgress = false
-  @State private var testConfirmed = false
   @State private var integrationDeferred = false
 
-  private let totalSteps = 7
+  private let totalSteps = 3
 
   var body: some View {
     VStack(spacing: 0) {
@@ -51,12 +47,8 @@ struct OnboardingView: View {
 
       Group {
         switch step {
-        case 0: welcome
-        case 1: privacy
-        case 2: codexDetection
-        case 3: integration
-        case 4: capsLock
-        case 5: visualTest
+        case 0: placement
+        case 1: integration
         default: finish
         }
       }
@@ -65,161 +57,159 @@ struct OnboardingView: View {
       .padding(.vertical, 36)
 
       Divider()
-      HStack {
-        if step > 0 { Button("Back") { step -= 1 } }
-        Spacer()
-        if step == totalSteps - 1 {
-          Button("Done") { completeOnboarding() }
-            .buttonStyle(.borderedProminent)
-        } else {
-          if step == 4 {
-            Button("Skip") { step += 1 }
-          }
-          Button("Continue") { step += 1 }
-            .buttonStyle(.borderedProminent)
-            .disabled(
-              (step == 3
-                && !Self.canContinueFromIntegration(trustState: integrationTrust.state))
-                || (step == 5 && !testConfirmed))
-        }
-      }
-      .padding(20)
+      footer
+        .padding(20)
     }
     .background(Color(nsColor: .windowBackgroundColor))
     .task(id: step) {
-      guard step == 3, integrationInstallState == .notStarted else { return }
-      await installIntegration()
+      guard step == 1, integrationInstallState != .installing else { return }
+      await refreshIntegration()
+    }
+    .onChange(of: scenePhase) { _, phase in
+      guard phase == .active, step == 1, integrationTrust.state != .trusted else { return }
+      Task { await refreshIntegration() }
     }
   }
 
-  private var welcome: some View {
-    onboardingPage(
-      icon: nil,
-      title: "Codex status, at the notch.",
-      detail:
-        "Cowlick shows work, approvals, and completion around the MacBook notch. Other displays use a compact island."
-    )
-  }
+  private var placement: some View {
+    @Bindable var settings = services.settings
 
-  private var privacy: some View {
-    onboardingPage(
-      icon: "lock.shield",
-      title: "Local by default.",
-      detail:
-        "No account, analytics, or cloud backend. Cowlick keeps no history. An optional, off-by-default reset forecast contacts willcodexquotareset.com with clear attribution."
-    )
-  }
-
-  private var codexDetection: some View {
-    VStack(alignment: .leading, spacing: 18) {
+    return VStack(alignment: .leading, spacing: 22) {
       onboardingPage(
-        icon: codexInstalled ? "checkmark.circle" : "exclamationmark.triangle",
-        iconColor: codexInstalled ? NotchTheme.success : NotchTheme.warning,
-        title: codexInstalled ? "Codex is installed." : "Codex was not found.",
-        detail: codexInstalled
-          ? "Cowlick found the official Codex application on this Mac."
-          : "Install Codex, then return here or repair integration later from Settings."
+        icon: nil,
+        title: "Choose where Cowlick lives.",
+        detail: notchAvailable
+          ? "Automatic uses this Mac's notch and keeps the menu bar clear. You can choose one menu-bar item instead."
+          : "This Mac does not have a notch, so Cowlick uses one compact menu-bar item."
       )
-      Button("Check Again") { step = 2 }
+
+      if notchAvailable {
+        Picker("Show Cowlick in", selection: $settings.presentationPreference) {
+          Text("Automatic").tag(PresentationPreference.automatic)
+          Text("Menu bar").tag(PresentationPreference.menuBar)
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .frame(maxWidth: 360)
+      }
+
+      Label(
+        services.presentationCoordinator.resolvedDescription,
+        systemImage: services.presentationCoordinator.showsMenuBar
+          ? "menubar.rectangle" : "rectangle.topthird.inset.filled"
+      )
+      .font(.callout)
+      .foregroundStyle(.secondary)
+      .fixedSize(horizontal: false, vertical: true)
     }
   }
 
   private var integration: some View {
     VStack(alignment: .leading, spacing: 18) {
       onboardingPage(
-        icon: "point.3.connected.trianglepath.dotted",
-        title: "Connect Cowlick to Codex.",
+        icon: integrationIcon,
+        iconColor: integrationIconColor,
+        title: integrationTitle,
         detail:
-          "Cowlick safely merges session, subagent, approval, and completion hooks into your existing Codex configuration while preserving unrelated entries."
+          "Cowlick installs six local lifecycle hooks without replacing unrelated Codex settings."
       )
-      Text(integrationStatus).font(.caption).foregroundStyle(.secondary)
-      if integrationInstallState == .failed || integrationTrust.state == .incomplete {
-        Button("Retry Integration") { Task { await installIntegration() } }
-          .buttonStyle(.borderedProminent)
-      }
-      Text(integrationGuidance)
-        .font(.caption)
-        .foregroundStyle(.secondary)
-        .fixedSize(horizontal: false, vertical: true)
-      if integrationTrust.state != .trusted && integrationInstallState != .installing {
-        HStack {
-          if integrationTrust.state == .needsReview {
-            Button("Copy /hooks") { CodexIntegrationPresentation.copyReviewCommand() }
-          }
-          Button("Open Codex") { CodexActivationService.openCodex(fallbackDirectory: nil) }
-          Button("Check Again") { Task { await checkIntegrationTrust() } }
-        }
-        Button("Finish Setup Later") {
-          integrationDeferred = true
-          step += 1
-        }
-        .buttonStyle(.link)
-      }
-    }
-  }
 
-  private var capsLock: some View {
-    VStack(alignment: .leading, spacing: 18) {
-      onboardingPage(
-        icon: "capslock",
-        title: "Use the Caps Lock light.",
-        detail:
-          "This optional signal can pulse for approvals, completions, and failures. Cowlick always restores the original state."
-      )
-      Text(capsStatus).font(.caption).foregroundStyle(.secondary)
-      HStack {
-        Button("Check Support") { checkCapsSupport() }
-        Button("Enable and Test") { enableAndTestCaps() }
-      }
-    }
-  }
-
-  private var visualTest: some View {
-    VStack(alignment: .leading, spacing: 18) {
-      onboardingPage(
-        icon: "rectangle.topthird.inset.filled",
-        title: "Try the local bridge.",
-        detail:
-          "This preview checks the authenticated helper-to-app connection. It does not prove that Codex has trusted or invoked Cowlick's lifecycle hooks."
-      )
-      HStack {
-        Button(integrationTestInProgress ? "Testing…" : "Test Local Bridge") {
-          Task { await runIntegrationTest() }
-        }
-        .disabled(
-          integrationTestInProgress || services.sessionStore.integrationSelfTestInProgress
-            || !services.sessionStore.canPreviewTestStates)
-        Button("Preview Approval") { services.sessionStore.testState(.approvalRequested) }
-          .disabled(!services.sessionStore.canPreviewTestStates)
-      }
-      Text(integrationTestStatus)
-        .font(.caption)
+      Label(integrationStatus, systemImage: integrationStatusIcon)
+        .font(.callout)
         .foregroundStyle(.secondary)
-      Toggle("I can see the island", isOn: $testConfirmed)
-        .toggleStyle(.checkbox)
+
+      if !codexInstalled {
+        Text(
+          "Codex was not found. Install the official Codex app before reviewing Cowlick's hooks."
+        )
+        .font(.caption)
+        .foregroundStyle(NotchTheme.warning)
+      } else if integrationTrust.state == .needsReview {
+        Text(Self.finishInstruction(trustState: integrationTrust.state))
+          .font(.caption)
+          .foregroundStyle(.secondary)
+          .fixedSize(horizontal: false, vertical: true)
+      } else if integrationInstallState == .failed || integrationTrust.state == .incomplete {
+        Text(integrationGuidance)
+          .font(.caption)
+          .foregroundStyle(.secondary)
+          .fixedSize(horizontal: false, vertical: true)
+      }
     }
   }
 
   private var finish: some View {
-    VStack(alignment: .leading, spacing: 18) {
+    VStack(alignment: .leading, spacing: 22) {
       onboardingPage(
-        icon: integrationTrust.state == .trusted ? "checkmark.seal" : "exclamationmark.triangle",
-        iconColor: integrationTrust.state == .trusted ? NotchTheme.success : NotchTheme.warning,
+        icon: integrationTrust.state == .trusted ? "checkmark.seal" : "checkmark.circle",
+        iconColor: NotchTheme.success,
         title: Self.finishTitle(trustState: integrationTrust.state),
         detail: Self.finishDetail(
           trustState: integrationTrust.state, integrationDeferred: integrationDeferred)
       )
-      if integrationTrust.state != .trusted {
-        Text(CodexIntegrationPresentation.reviewInstruction)
-          .font(.caption)
-          .foregroundStyle(.secondary)
-        HStack {
-          if integrationTrust.state == .needsReview {
-            Button("Copy /hooks") { CodexIntegrationPresentation.copyReviewCommand() }
+
+      VStack(alignment: .leading, spacing: 12) {
+        Label(
+          services.presentationCoordinator.resolvedDescription,
+          systemImage: services.presentationCoordinator.showsMenuBar
+            ? "menubar.rectangle" : "rectangle.topthird.inset.filled"
+        )
+        Label(usageSummary, systemImage: "gauge")
+        Label(
+          integrationTrust.state == .trusted
+            ? "Approval actions are available in Cowlick."
+            : "Approval actions stay in Codex until its hook review is complete.",
+          systemImage: integrationTrust.state == .trusted ? "checkmark.shield" : "shield"
+        )
+      }
+      .font(.callout)
+      .foregroundStyle(.secondary)
+    }
+  }
+
+  @ViewBuilder
+  private var footer: some View {
+    HStack {
+      if step > 0 {
+        Button("Back") { step -= 1 }
+      }
+      Spacer()
+
+      switch step {
+      case 0:
+        Button("Continue") { step = 1 }
+          .buttonStyle(.borderedProminent)
+      case 1:
+        if integrationInstallState != .installing && integrationTrust.state != .trusted {
+          Button("Use limited mode") {
+            integrationDeferred = true
+            step = 2
           }
-          Button("Open Codex") { CodexActivationService.openCodex(fallbackDirectory: nil) }
-          Button("Check Again") { Task { await checkIntegrationTrust() } }
+          .buttonStyle(.link)
         }
+
+        switch integrationInstallState {
+        case .installing:
+          ProgressView("Connecting…")
+            .controlSize(.small)
+        case _ where integrationTrust.state == .trusted:
+          Button("Continue") { step = 2 }
+            .buttonStyle(.borderedProminent)
+        case _ where integrationTrust.state == .needsReview:
+          Button("Copy /hooks & Open Codex") { reviewHooksInCodex() }
+            .buttonStyle(.borderedProminent)
+        case .failed:
+          Button("Retry connection") { Task { await installIntegration(openReview: true) } }
+            .buttonStyle(.borderedProminent)
+        case .notStarted, .installed:
+          Button("Connect Codex") { Task { await installIntegration(openReview: true) } }
+            .buttonStyle(.borderedProminent)
+        }
+      default:
+        Button(Self.completionButtonTitle(trustState: integrationTrust.state)) {
+          completeOnboarding()
+        }
+        .buttonStyle(.borderedProminent)
       }
     }
   }
@@ -260,13 +250,79 @@ struct OnboardingView: View {
     .frame(maxWidth: 500, alignment: .leading)
   }
 
+  private var notchAvailable: Bool {
+    #if DEBUG
+      if CommandLine.arguments.contains("--simulate-notch") { return true }
+    #endif
+    guard
+      let screen = NotchGeometryResolver.preferredScreen(services.settings.preferredDisplay)
+    else { return false }
+    return NotchGeometryResolver.notchMetrics(screen: screen) != nil
+  }
+
   private var codexInstalled: Bool {
     NSWorkspace.shared.urlForApplication(
       withBundleIdentifier: CodexActivationService.codexBundleIdentifier) != nil
   }
 
-  private func installIntegration() async {
-    integrationStatus = "Installing…"
+  private var integrationIcon: String {
+    switch integrationTrust.state {
+    case .trusted: "checkmark.seal"
+    case .needsReview: "shield.lefthalf.filled"
+    case .notChecked, .incomplete, .unavailable: "point.3.connected.trianglepath.dotted"
+    }
+  }
+
+  private var integrationIconColor: Color {
+    switch integrationTrust.state {
+    case .trusted: NotchTheme.success
+    case .needsReview: NotchTheme.warning
+    case .notChecked, .incomplete, .unavailable: .primary
+    }
+  }
+
+  private var integrationTitle: String {
+    switch integrationTrust.state {
+    case .trusted: "Codex is connected."
+    case .needsReview: "One review in Codex."
+    case .notChecked, .incomplete, .unavailable: "Connect Codex."
+    }
+  }
+
+  private var integrationStatusIcon: String {
+    switch integrationInstallState {
+    case .notStarted: "circle"
+    case .installing: "hourglass"
+    case .installed: "checkmark.circle"
+    case .failed: "exclamationmark.triangle"
+    }
+  }
+
+  private var integrationGuidance: String {
+    if integrationInstallState == .failed {
+      return "Cowlick could not complete installation. Retry, or continue in limited mode."
+    }
+    return CodexIntegrationPresentation.guidance(for: integrationTrust.state)
+  }
+
+  private var usageSummary: String {
+    guard let percent = services.usageStore.primaryDisplayedPercent else {
+      return "Codex usage appears here when it is available."
+    }
+    let meaning = services.settings.usageMetricPreference.label.lowercased()
+    return "Codex usage: \(Int(percent.rounded()))% \(meaning)."
+  }
+
+  private func refreshIntegration() async {
+    let status = await Task.detached { HookInstaller().status() }.value
+    integrationStatus = status.summary
+    integrationInstallState = status.isHealthy ? .installed : .notStarted
+    integrationTrust = await services.hookTrustService.inspect()
+    advanceWhenTrusted()
+  }
+
+  private func installIntegration(openReview: Bool = false) async {
+    integrationStatus = "Installing all six hooks…"
     integrationInstallState = .installing
     let result = await Task.detached { () -> IntegrationInstallResult in
       let installer = HookInstaller()
@@ -281,129 +337,31 @@ struct OnboardingView: View {
     integrationInstallState = result.succeeded ? .installed : .failed
     if result.succeeded {
       services.settings.integrationIntentionallyRemoved = false
-    }
-    integrationTrust = await services.hookTrustService.inspect()
-    if integrationTrust.state == .trusted { integrationDeferred = false }
-  }
-
-  private var integrationGuidance: String {
-    if integrationInstallState == .failed {
-      return "Cowlick could not complete installation. Retry or repair it later in Settings."
-    }
-    return CodexIntegrationPresentation.guidance(for: integrationTrust.state)
-  }
-
-  private func checkIntegrationTrust() async {
-    integrationTrust = await services.hookTrustService.inspect()
-    integrationStatus = integrationTrust.state.summary
-    if integrationTrust.state == .trusted { integrationDeferred = false }
-  }
-
-  private func checkCapsSupport() {
-    Task { capsStatus = await services.capsLockService.supportStatus().summary }
-  }
-
-  private func enableAndTestCaps() {
-    Task {
-      let result = await services.capsLockService.testSignal()
-      capsStatus = result == .available ? "Native HID signal test passed" : result.summary
-      services.settings.capsLockEnabled = result == .available
-    }
-  }
-
-  private func runIntegrationTest() async {
-    guard !integrationTestInProgress else { return }
-    guard let lease = services.sessionStore.beginIntegrationSelfTest(owner: .onboarding) else {
-      integrationTestStatus =
-        services.sessionStore.integrationSelfTestInProgress
-        ? "Another integration self-test is already running."
-        : "Resolve current work or approval before testing the integration."
-      return
-    }
-    integrationTestInProgress = true
-    defer {
-      integrationTestInProgress = false
-      services.sessionStore.finishIntegrationSelfTest(lease)
-    }
-    do {
-      let helperURL = try services.hookInstaller.installedHelperURLForExplicitSelfTest()
-      let selfTest = IntegrationSelfTestService(helperURL: helperURL)
-      try await selfTest.ping()
-      guard services.sessionStore.isIntegrationSelfTestActive(lease) else {
-        integrationTestStatus = "Integration self-test was cancelled."
-        return
-      }
-      guard services.sessionStore.canPreviewTestStates else {
-        integrationTestStatus = "Live activity started, so the integration preview was cancelled."
-        return
-      }
-      let sessionID = "cowlick-self-test-\(UUID().uuidString)"
-      guard services.sessionStore.beginIntegrationDemoSession(sessionID, lease: lease) else {
-        integrationTestStatus = "Live activity started, so the integration preview was cancelled."
-        return
-      }
-      var keepPresentedState = false
-      defer {
-        services.sessionStore.finishIntegrationDemoSession(
-          sessionID, discardPresentedState: !keepPresentedState)
-      }
-      try await selfTest.sendDemo(.working, sessionID: sessionID)
-      guard await waitForIntegrationDemoEvent(.working, sessionID: sessionID) else {
-        integrationTestStatus = integrationPreviewFailureStatus(sessionID: sessionID, lease: lease)
-        return
-      }
-      integrationTestStatus = "Local bridge connected. Working preview delivered."
-      try await Task.sleep(for: .seconds(1.5))
-      guard services.sessionStore.isIntegrationSelfTestActive(lease) else {
-        integrationTestStatus = "Integration self-test was cancelled."
-        return
-      }
-      guard services.sessionStore.isIntegrationDemoSessionActive(sessionID) else {
-        integrationTestStatus = "Live activity started, so the integration preview was cancelled."
-        return
-      }
-      try await selfTest.sendDemo(.completed, sessionID: sessionID)
-      guard await waitForIntegrationDemoEvent(.completed, sessionID: sessionID) else {
-        integrationTestStatus = integrationPreviewFailureStatus(sessionID: sessionID, lease: lease)
-        return
-      }
-      keepPresentedState = true
-      integrationTestStatus =
-        "Local bridge passed. This preview does not verify Codex hook trust or lifecycle delivery."
-    } catch {
-      integrationTestStatus = error.localizedDescription
-    }
-  }
-
-  private func waitForIntegrationDemoEvent(
-    _ event: IntegrationDemoEvent,
-    sessionID: String
-  ) async -> Bool {
-    let deadline = Date().addingTimeInterval(2)
-    while Date() < deadline {
-      if services.sessionStore.hasObservedIntegrationDemoEvent(event, sessionID: sessionID) {
-        return true
-      }
-      guard services.sessionStore.isIntegrationDemoSessionActive(sessionID) else { return false }
       do {
-        try await Task.sleep(for: .milliseconds(20))
+        let helperURL = try services.hookInstaller.installedHelperURLForExplicitSelfTest()
+        try await IntegrationSelfTestService(helperURL: helperURL).ping()
+        integrationStatus = "Installed. Local bridge connected."
       } catch {
-        return false
+        integrationStatus = "Installed. Codex review is still required."
       }
     }
-    return services.sessionStore.hasObservedIntegrationDemoEvent(event, sessionID: sessionID)
+    integrationTrust = await services.hookTrustService.inspect()
+    advanceWhenTrusted()
+    if openReview, integrationTrust.state == .needsReview {
+      reviewHooksInCodex()
+    }
   }
 
-  private func integrationPreviewFailureStatus(
-    sessionID: String,
-    lease: IntegrationSelfTestLease
-  ) -> String {
-    guard services.sessionStore.isIntegrationSelfTestActive(lease) else {
-      return "Integration self-test was cancelled."
-    }
-    return services.sessionStore.isIntegrationDemoSessionActive(sessionID)
-      ? "Integration preview delivery timed out."
-      : "Live activity started, so the integration preview was cancelled."
+  private func advanceWhenTrusted() {
+    guard integrationTrust.state == .trusted else { return }
+    integrationDeferred = false
+    step = 2
+  }
+
+  private func reviewHooksInCodex() {
+    CodexIntegrationPresentation.copyReviewCommand()
+    integrationStatus = "Waiting for Codex review. Cowlick checks again when you return."
+    CodexActivationService.openCodex(fallbackDirectory: nil)
   }
 
   private func completeOnboarding() {
@@ -417,7 +375,7 @@ struct OnboardingView: View {
   }
 
   static func finishTitle(trustState: CodexHookTrustState) -> String {
-    trustState == .trusted ? "You're ready." : "Codex review still needed."
+    trustState == .trusted ? "Cowlick is ready." : "Cowlick is ready in limited mode."
   }
 
   static func finishDetail(
@@ -426,10 +384,22 @@ struct OnboardingView: View {
   ) -> String {
     if trustState == .trusted {
       return
-        "Cowlick observes current and future activity locally. Trusted hooks add exact approval actions and higher-fidelity lifecycle delivery."
+        "Usage, current work, completions, and approval actions now appear in your selected surface."
     }
     return integrationDeferred
-      ? "You can finish later. Cowlick can show local activity now; approval actions remain in Codex until you review Cowlick's hooks."
-      : "Local activity is available now; review Cowlick's hooks to approve or deny from the island."
+      ? "Usage and local activity are available now. Approval actions remain in Codex until you review Cowlick's hooks."
+      : "Usage and local activity are available now. Complete the Codex review later to add approval actions."
+  }
+
+  static func finishInstruction(trustState: CodexHookTrustState) -> String {
+    if trustState == .needsReview {
+      return
+        "Choose Copy /hooks & Open Codex. Paste the copied command, approve Cowlick once, then return; Cowlick checks automatically."
+    }
+    return CodexIntegrationPresentation.guidance(for: trustState)
+  }
+
+  static func completionButtonTitle(trustState: CodexHookTrustState) -> String {
+    "Start Cowlick"
   }
 }

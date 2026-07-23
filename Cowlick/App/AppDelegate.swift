@@ -26,6 +26,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let services = AppServices.shared
     WindowCoordinator.shared.configure(services: services)
     configureUITestingIfNeeded(services)
+    services.presentationCoordinator.start()
     guard !isUITesting else { return }
     do {
       try services.hookInstaller.refreshInstalledHelperIfNeeded()
@@ -112,8 +113,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
   private func configureUITestingIfNeeded(_ services: AppServices) {
     guard CommandLine.arguments.contains("--ui-testing") else { return }
+    services.settings.presentationPreference =
+      CommandLine.arguments.contains("--menu-bar") ? .menuBar : .automatic
     services.settings.showChatNames = !CommandLine.arguments.contains("--hide-chat-names")
+    services.settings.showPromptPreviews =
+      CommandLine.arguments.contains("--show-prompt-previews")
     services.settings.showResultPreviews = CommandLine.arguments.contains("--show-result-previews")
+    services.settings.showNotchCurrentWork =
+      !CommandLine.arguments.contains("--hide-notch-current-work")
+    services.settings.showNotchIntegrationAlerts =
+      !CommandLine.arguments.contains("--hide-notch-integration-alerts")
+    services.settings.showNotchCodexUsage =
+      !CommandLine.arguments.contains("--hide-notch-codex-usage")
+    services.settings.showNotchAPICostEstimate =
+      !CommandLine.arguments.contains("--hide-notch-api-cost")
+    services.settings.showNotchResetForecast =
+      !CommandLine.arguments.contains("--hide-notch-reset-forecast")
+    services.settings.showNotchProviderBilling =
+      !CommandLine.arguments.contains("--hide-notch-provider-billing")
     if ProcessInfo.processInfo.environment["COWLICK_ASSET_CAPTURE"] == "1" {
       services.settings.reducedAnimation = true
     }
@@ -122,15 +139,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       services.settings.showAPICostEstimate = true
       services.settings.showResetForecast = true
       services.settings.usageMetricPreference = .remaining
+      services.usageStore.refreshIfNeeded(force: true)
     }
     let stateName = CommandLine.arguments.first(where: { $0.hasPrefix("--state=") })
       .map { String($0.dropFirst("--state=".count)) }
     Task { @MainActor in
       try? await Task.sleep(for: .milliseconds(300))
+      if CommandLine.arguments.contains("--billing-demo") {
+        _ = try? await services.providerAccountsController.addAccount(
+          provider: .openAIAPI,
+          alias: "Platform",
+          credential: Data("ui-testing-admin-key".utf8)
+        )
+      }
       if stateName == "multiple" {
         services.sessionStore.testState(.working)
         try? await Task.sleep(for: .milliseconds(500))
         services.sessionStore.testMultipleSessions()
+      } else if stateName == "overflow" {
+        services.sessionStore.testOverflowSessions()
       } else if let stateName, let state = BridgeEventName(rawValue: stateName) {
         if state == .approvalRequested {
           services.sessionStore.testState(.working)
@@ -142,6 +169,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.sessionStore.toggleExpanded()
       }
       if CommandLine.arguments.contains("--demo-sequence") {
+        try? await Task.sleep(for: .seconds(4))
         services.sessionStore.expand()
         try? await Task.sleep(for: .seconds(3))
         services.sessionStore.collapse()
@@ -169,16 +197,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     sleepObservers.append(
       center.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) {
         _ in
-        Task { @MainActor in await services.capsLockService.cancelAndRestore() }
+        Task { @MainActor in
+          await services.capsLockService.cancelAndRestore()
+        }
       })
     sleepObservers.append(
-      center.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { _ in
+      center.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) {
+        _ in
         Task { @MainActor in
           services.localLifecycleObserver.stop()
           services.localLifecycleObserver.start()
-          if services.settings.capsLockEnabled, services.sessionStore.currentApproval != nil {
-            await services.capsLockService.start(.approval)
-          }
+          services.usageStore.refreshForMenuPresentation()
+          services.sessionStore.refreshCapsLockAttention(force: true)
         }
       })
   }

@@ -1,19 +1,61 @@
 import AppKit
 import Observation
-import QuartzCore
 import SwiftUI
+
+enum NotchSurfaceMode: Hashable, Sendable {
+  case compact
+  case sessions
+  case approval
+
+  var isExpanded: Bool { self != .compact }
+}
+
+struct NotchSurfacePresentationState: Equatable, Sendable {
+  var isAttached = false
+  var notchGapWidth: CGFloat = 0
+  var safeAreaTop: CGFloat = 0
+  var surfaceSize = NotchTheme.compactSize
+  var mode = NotchSurfaceMode.compact
+}
 
 @MainActor
 @Observable
 final class NotchPanelPresentation {
-  private(set) var isAttached = false
-  private(set) var notchGapWidth: CGFloat = 0
-  private(set) var safeAreaTop: CGFloat = 0
+  private(set) var state = NotchSurfacePresentationState()
+  private(set) var informationContentHeight: CGFloat = 0
 
-  func update(from geometry: ResolvedNotchGeometry) {
-    isAttached = geometry.hasNotch
-    notchGapWidth = geometry.notchGapWidth
-    safeAreaTop = geometry.safeAreaTop
+  var isAttached: Bool { state.isAttached }
+  var notchGapWidth: CGFloat { state.notchGapWidth }
+  var safeAreaTop: CGFloat { state.safeAreaTop }
+  var surfaceSize: CGSize { state.surfaceSize }
+  var mode: NotchSurfaceMode { state.mode }
+
+  func update(
+    from geometry: ResolvedNotchGeometry,
+    surfaceSize: CGSize,
+    mode: NotchSurfaceMode
+  ) {
+    state = NotchSurfacePresentationState(
+      isAttached: geometry.hasNotch,
+      notchGapWidth: geometry.notchGapWidth,
+      safeAreaTop: geometry.safeAreaTop,
+      surfaceSize: surfaceSize,
+      mode: mode
+    )
+  }
+
+  func reportInformationContentHeight(_ height: CGFloat) {
+    let height = max(0, height)
+    guard abs(informationContentHeight - height) >= 0.5 else { return }
+    informationContentHeight = height
+  }
+
+  func interactiveRect(in hostSize: CGSize, isFlipped: Bool) -> CGRect {
+    NotchSurfaceLayout.interactiveRect(
+      hostSize: hostSize,
+      surfaceSize: surfaceSize,
+      isFlipped: isFlipped
+    )
   }
 }
 
@@ -41,46 +83,50 @@ enum ApprovalAccessibilityPresentation {
 
 @MainActor
 final class NotchPanelController {
-  private let store: SessionStore
+  private let services: AppServices
+  private var store: SessionStore { services.sessionStore }
+  private var usageStore: UsageStore { services.usageStore }
   private let panel: NotchPanel
   private let presentation = NotchPanelPresentation()
+  private let hostingView: NotchHostingView<NotchRootView>
   private var observers: [NSObjectProtocol] = []
   private var presentationUpdateScheduled = false
+  private var geometryTransitionTask: Task<Void, Never>?
+  private var hoverIntent: Task<Void, Never>?
   private var lastAnnouncedApprovalID: UUID?
+  private var presentationEnabled = false
   private(set) var currentGeometry: ResolvedNotchGeometry?
 
-  init(store: SessionStore) {
-    self.store = store
+  init(services: AppServices) {
+    self.services = services
     panel = NotchPanel(
       contentRect: CGRect(origin: .zero, size: NotchTheme.compactSize),
       styleMask: [.borderless, .nonactivatingPanel],
       backing: .buffered,
       defer: false
     )
-    configurePanel()
-    let hostingView = NotchHostingView(
-      rootView: NotchRootView(store: store, presentation: presentation))
-    hostingView.canInterpretSwipe = { [weak store, weak presentation] in
-      guard let store, let presentation else { return false }
-      return presentation.isAttached && store.currentApproval == nil
-    }
-    hostingView.handleSwipeAction = { [weak store] action in
-      guard let store, store.currentApproval == nil else { return false }
-      switch action {
-      case .expand:
-        guard !store.isExpanded, !store.sessionSummaries.isEmpty else { return false }
-        store.expand()
-      case .collapse:
-        guard store.isExpanded else { return false }
-        store.collapse()
-      }
-      return true
-    }
+    hostingView = NotchHostingView(
+      rootView: NotchRootView(
+        services: services,
+        presentation: presentation
+      ))
     hostingView.handlePointerDown = { [weak self] in
       self?.activateApprovalForUserInteraction()
     }
+    hostingView.handlePointerPresenceChange = { [weak self] isInside in
+      self?.handlePointerPresenceChange(isInside)
+    }
+    hostingView.interactiveRect = { [weak hostingView, weak presentation] in
+      guard let hostingView, let presentation else { return .zero }
+      return presentation.interactiveRect(
+        in: hostingView.bounds.size,
+        isFlipped: hostingView.isFlipped
+      )
+    }
+    configurePanel()
     panel.contentView = hostingView
     installObservers()
+    observeUsageChanges()
     store.presentationDidChange = { [weak self] in self?.schedulePresentationUpdate() }
   }
 
@@ -88,35 +134,71 @@ final class NotchPanelController {
     announceCurrentApprovalIfNeeded()
     let interactiveApproval = store.currentApproval != nil && store.isExpanded
 
+    let mode: NotchSurfaceMode
     let baseSize: CGSize
     if interactiveApproval, let approval = store.currentApproval {
+      mode = .approval
       baseSize = NotchTheme.approvalSize(for: approval)
     } else if store.isExpanded {
-      baseSize = NotchTheme.sessionListSize(sessionCount: store.sessionSummaries.count)
+      mode = .sessions
+      let estimatedSize = NotchTheme.expandedInformationSize(
+        sessionCount: store.sessionSummaries.count,
+        showsCurrentWork: services.settings.showNotchCurrentWork,
+        showsIntegrationAlerts: services.settings.showNotchIntegrationAlerts,
+        showsOfficialUsage: services.settings.showCodexUsage
+          && services.settings.showNotchCodexUsage,
+        showsAPICostEstimate: services.settings.showAPICostEstimate
+          && services.settings.showNotchAPICostEstimate,
+        showsForecast: services.settings.showResetForecast
+          && services.settings.showNotchResetForecast,
+        showsBilling: services.settings.showNotchProviderBilling
+          && !services.providerAccountsController.accounts.isEmpty
+      )
+      baseSize = CGSize(
+        width: estimatedSize.width,
+        height: presentation.informationContentHeight > 0
+          ? presentation.informationContentHeight : estimatedSize.height
+      )
     } else {
+      mode = .compact
       baseSize = NotchTheme.compactSize
     }
 
-    guard store.shouldShowOverlay,
+    guard presentationEnabled, store.shouldShowOverlay || hasUsagePresentation,
       let screen = NotchGeometryResolver.preferredScreen(store.settings.preferredDisplay)
     else {
+      geometryTransitionTask?.cancel()
       panel.orderOut(nil)
       currentGeometry = nil
       return
     }
 
     let isExpanded = store.isExpanded
-    let contentSize: CGSize
-    if let metrics = resolvedNotchMetrics(for: screen) {
-      contentSize = NotchTheme.attachedSize(
+    let unboundedContentSize: CGSize
+    let notchMetrics = resolvedNotchMetrics(for: screen)
+    if let metrics = notchMetrics {
+      unboundedContentSize = NotchTheme.attachedSize(
         baseSize: baseSize,
         notchGapWidth: metrics.gapWidth,
         safeAreaTop: metrics.safeAreaTop,
-        expanded: isExpanded
+        expanded: isExpanded,
+        allowsWidthGrowth: mode == .approval
       )
     } else {
-      contentSize = baseSize
+      unboundedContentSize = baseSize
     }
+    let screenMaximumPanelHeight =
+      notchMetrics == nil
+      ? max(NotchTheme.actionBarHeight, screen.visibleFrame.height - 12)
+      : max(NotchTheme.actionBarHeight, screen.frame.height - 24)
+    let maximumPanelHeight =
+      mode == .sessions
+      ? min(screenMaximumPanelHeight, NotchTheme.maximumExpandedSurfaceHeight)
+      : screenMaximumPanelHeight
+    let contentSize = CGSize(
+      width: unboundedContentSize.width,
+      height: min(unboundedContentSize.height, maximumPanelHeight)
+    )
 
     guard let geometry = resolvedGeometry(screen: screen, contentSize: contentSize)
     else {
@@ -125,9 +207,8 @@ final class NotchPanelController {
       return
     }
 
-    let previousGeometry = currentGeometry
+    geometryTransitionTask?.cancel()
     currentGeometry = geometry
-    presentation.update(from: geometry)
     panel.hasShadow = !geometry.hasNotch
     panel.permitsKeyInteraction = interactiveApproval
     panel.ignoresMouseEvents = false
@@ -135,36 +216,47 @@ final class NotchPanelController {
       panel.styleMask.insert(.nonactivatingPanel)
     }
 
-    // Do not force a hosting-view layout here. Ordering the panel performs the
-    // required layout once; forcing a display first can re-enter SwiftUI text
-    // layout when an approval changes the panel's key-window behavior.
     let reduceMotion =
       store.settings.reducedAnimation || NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-    let shouldAnimate =
-      panel.isVisible && previousGeometry?.displayID == geometry.displayID && !reduceMotion
-    if shouldAnimate, panel.frame != geometry.panelFrame {
-      let expanding = geometry.panelFrame.height > panel.frame.height
-      let controlPoints =
-        expanding
-        ? NotchTheme.expandTimingControlPoints
-        : NotchTheme.collapseTimingControlPoints
-      NSAnimationContext.runAnimationGroup { context in
-        context.duration =
-          expanding ? NotchTheme.panelExpandDuration : NotchTheme.panelCollapseDuration
-        context.timingFunction = CAMediaTimingFunction(
-          controlPoints: controlPoints.0,
-          controlPoints.1,
-          controlPoints.2,
-          controlPoints.3
-        )
-        panel.animator().setFrame(geometry.panelFrame, display: true)
-      }
-    } else {
-      panel.setFrame(geometry.panelFrame, display: false)
-    }
-
     let wasVisible = panel.isVisible
     panel.orderFrontRegardless()
+
+    let presentationNeedsUpdate =
+      presentation.isAttached != geometry.hasNotch
+      || presentation.notchGapWidth != geometry.notchGapWidth
+      || presentation.safeAreaTop != geometry.safeAreaTop
+      || presentation.surfaceSize != contentSize
+      || presentation.mode != mode
+    let growsHost =
+      geometry.panelFrame.width > panel.frame.width
+      || geometry.panelFrame.height > panel.frame.height
+    let shrinksHost =
+      geometry.panelFrame.width < panel.frame.width
+      || geometry.panelFrame.height < panel.frame.height
+
+    if !wasVisible || reduceMotion || !presentationNeedsUpdate {
+      if panel.frame != geometry.panelFrame {
+        panel.setFrame(geometry.panelFrame, display: false)
+      }
+      updatePresentationModel(from: geometry, surfaceSize: contentSize, mode: mode)
+    } else if growsHost {
+      panel.setFrame(geometry.panelFrame, display: false)
+      geometryTransitionTask = Task { @MainActor [weak self] in
+        await Task.yield()
+        guard let self, !Task.isCancelled, self.currentGeometry == geometry else { return }
+        self.updatePresentationModel(from: geometry, surfaceSize: contentSize, mode: mode)
+      }
+    } else {
+      updatePresentationModel(from: geometry, surfaceSize: contentSize, mode: mode)
+      if shrinksHost {
+        geometryTransitionTask = Task { @MainActor [weak self] in
+          try? await Task.sleep(for: .seconds(NotchTheme.surfaceCloseDuration))
+          guard let self, !Task.isCancelled, self.currentGeometry == geometry else { return }
+          self.panel.setFrame(geometry.panelFrame, display: false)
+        }
+      }
+    }
+
     if !wasVisible, !reduceMotion {
       panel.alphaValue = 0
       NSAnimationContext.runAnimationGroup { context in
@@ -177,8 +269,65 @@ final class NotchPanelController {
     }
   }
 
+  func setPresentationEnabled(_ enabled: Bool) {
+    guard enabled != presentationEnabled else { return }
+    presentationEnabled = enabled
+    if enabled {
+      schedulePresentationUpdate()
+    } else {
+      geometryTransitionTask?.cancel()
+      hoverIntent?.cancel()
+      panel.orderOut(nil)
+      currentGeometry = nil
+    }
+  }
+
+  private func updatePresentationModel(
+    from geometry: ResolvedNotchGeometry,
+    surfaceSize: CGSize,
+    mode: NotchSurfaceMode
+  ) {
+    presentation.update(from: geometry, surfaceSize: surfaceSize, mode: mode)
+    hostingView.refreshPointerTrackingArea()
+  }
+
+  private func handlePointerPresenceChange(_ isInside: Bool) {
+    hoverIntent?.cancel()
+    #if DEBUG
+      guard !CommandLine.arguments.contains("--disable-auto-hover") else { return }
+    #endif
+    guard presentation.isAttached, store.currentApproval == nil else { return }
+
+    let delay: TimeInterval
+    if isInside {
+      guard !store.isExpanded, !store.sessionSummaries.isEmpty else { return }
+      delay = NotchTheme.hoverOpenDelay
+    } else {
+      guard store.isExpanded else { return }
+      delay = NotchTheme.hoverCloseDelay
+    }
+
+    hoverIntent = Task { @MainActor [weak self] in
+      try? await Task.sleep(for: .seconds(delay))
+      guard let self, !Task.isCancelled else { return }
+      let isActuallyInside = NotchSurfaceLayout.hoverScreenRect(
+        panelFrame: self.panel.frame,
+        surfaceSize: self.presentation.surfaceSize
+      ).contains(NSEvent.mouseLocation)
+      if isInside {
+        guard isActuallyInside, !self.store.isExpanded,
+          !self.store.sessionSummaries.isEmpty
+        else { return }
+        self.store.expand()
+      } else {
+        guard !isActuallyInside, self.store.isExpanded else { return }
+        self.store.collapse()
+      }
+    }
+  }
+
   func open() {
-    guard !store.sessionSummaries.isEmpty else { return }
+    guard !store.sessionSummaries.isEmpty || hasUsagePresentation else { return }
     store.isExpanded = true
     schedulePresentationUpdate()
   }
@@ -223,6 +372,35 @@ final class NotchPanelController {
       guard let self else { return }
       self.presentationUpdateScheduled = false
       self.updatePresentation()
+    }
+  }
+
+  private var hasUsagePresentation: Bool {
+    CollapsedIslandView.usageText(
+      showCodexUsage: usageStore.settings.showCodexUsage,
+      percent: usageStore.primaryDisplayedPercent
+    ) != nil
+  }
+
+  private func observeUsageChanges() {
+    withObservationTracking {
+      _ = usageStore.settings.showCodexUsage
+      _ = usageStore.settings.showAPICostEstimate
+      _ = usageStore.settings.showResetForecast
+      _ = usageStore.settings.showNotchCurrentWork
+      _ = usageStore.settings.showNotchIntegrationAlerts
+      _ = usageStore.settings.showNotchCodexUsage
+      _ = usageStore.settings.showNotchAPICostEstimate
+      _ = usageStore.settings.showNotchResetForecast
+      _ = usageStore.settings.showNotchProviderBilling
+      _ = usageStore.primaryDisplayedPercent
+      _ = services.providerAccountsController.accounts.count
+      _ = presentation.informationContentHeight
+    } onChange: { [weak self] in
+      Task { @MainActor [weak self] in
+        self?.observeUsageChanges()
+        self?.schedulePresentationUpdate()
+      }
     }
   }
 
@@ -284,7 +462,7 @@ final class NotchPanelController {
     return NotchGeometryResolver.resolve(
       screen: screen,
       contentSize: contentSize,
-      showOnNonNotch: store.settings.showOnNonNotch
+      showOnNonNotch: false
     )
   }
 

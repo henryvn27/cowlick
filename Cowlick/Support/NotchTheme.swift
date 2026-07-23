@@ -6,7 +6,7 @@ import SwiftUI
 // Color: physical black, a neutral stone control tint, and restrained semantic status colors.
 // Density: compact overlay on a 4-point grid; comfortable system-native windows.
 // Radius: continuous pill geometry; no ornamental cards.
-// Motion: restrained spring transitions, disabled for Reduce Motion.
+// Motion: restrained top-down transitions, disabled for Reduce Motion.
 enum NotchTheme {
   static let island = Color.black
   static let floatingSurface = Color(nsColor: .windowBackgroundColor)
@@ -19,54 +19,111 @@ enum NotchTheme {
 
   static let compactSize = CGSize(width: 170, height: 34)
   static let maximumApprovalSize = CGSize(width: 380, height: 170)
-  static let attachedWingWidth: CGFloat = 72
+  static let attachedWingWidth: CGFloat = 42
+  static let expandedInformationWidth: CGFloat = 332
+  static let maximumExpandedSurfaceHeight: CGFloat = 400
   static let compactRadius: CGFloat = 14
   static let expandedBottomRadius: CGFloat = 22
   static let floatingRadius: CGFloat = 12
-  static let panelExpandDuration = 0.24
-  static let panelCollapseDuration = 0.18
   static let reducedMotionFadeDuration = 0.12
   static let hoverFeedbackDuration = 0.12
-  static let hoverOpenDelay = 0.20
-  static let hoverCloseDelay = 0.40
-  static let contentSpring = Animation.spring(response: 0.28, dampingFraction: 1.0)
-  static let contentCollapse = Animation.timingCurve(
-    0.42,
-    0.00,
-    0.58,
-    1.00,
-    duration: panelCollapseDuration
+  static let hoverOpenDelay = 0.05
+  static let hoverCloseDelay = 0.16
+  static let surfaceOpenDuration = 0.32
+  static let surfaceCloseDuration = 0.24
+  static let maximumVisibleSessionCount = 3
+  static let sessionRowHeight: CGFloat = 28
+  static let sessionRowSpacing: CGFloat = 3
+  static let sessionListVerticalPadding: CGFloat = 8
+  static let actionBarHeight: CGFloat = 28
+  static let informationHeaderHeight: CGFloat = 40
+  // SwiftUI owns the visible surface morph. AppKit only prepares the opening
+  // host and retains it until closing finishes; hit testing follows the
+  // requested compact or expanded surface rather than the transparent host.
+  static let surfaceOpen = Animation.timingCurve(
+    0.22, 0.72, 0.24, 1, duration: surfaceOpenDuration)
+  static let surfaceClose = Animation.timingCurve(
+    0.42, 0, 0.76, 1, duration: surfaceCloseDuration)
+  static let statusChange = Animation.timingCurve(
+    0.23, 1.00, 0.32, 1.00, duration: 0.16)
+  static let contentReveal = Animation.timingCurve(
+    0.23, 1.00, 0.32, 1.00, duration: 0.18
+  ).delay(0.05)
+  static let contentConceal = Animation.timingCurve(
+    0.42, 0, 0.58, 1, duration: 0.10
   )
-
-  // A decisive ease-out makes the panel feel attached to the camera housing:
-  // most of the travel happens immediately, then the lower edge settles.
-  static let expandTimingControlPoints: (Float, Float, Float, Float) =
-    (0.16, 0.84, 0.24, 1.00)
-  static let collapseTimingControlPoints: (Float, Float, Float, Float) =
-    (0.42, 0.00, 0.58, 1.00)
+  static let pressFeedback = Animation.timingCurve(
+    0.23, 1.00, 0.32, 1.00, duration: 0.14)
+  static let dragRelease = Animation.spring(duration: 0.5, bounce: 0.2)
+  static let reducedMotion = Animation.easeOut(
+    duration: reducedMotionFadeDuration
+  )
 
   static func attachedSize(
     baseSize: CGSize,
     notchGapWidth: CGFloat,
     safeAreaTop: CGFloat,
-    expanded: Bool
+    expanded: Bool,
+    allowsWidthGrowth: Bool = true
   ) -> CGSize {
+    let compactWidth = notchGapWidth + attachedWingWidth * 2
     if expanded {
       return CGSize(
-        width: max(baseSize.width, notchGapWidth + attachedWingWidth * 2),
+        width: allowsWidthGrowth ? max(baseSize.width, compactWidth) : compactWidth,
         height: baseSize.height + safeAreaTop
       )
     }
     return CGSize(
-      width: max(baseSize.width, notchGapWidth + attachedWingWidth * 2),
-      height: max(baseSize.height, safeAreaTop)
+      width: max(baseSize.width, compactWidth),
+      height: safeAreaTop
     )
   }
 
   static func sessionListSize(sessionCount: Int) -> CGSize {
-    let visibleCount = sessionCount > 3 ? 2 : min(3, max(1, sessionCount))
-    let overflowHeight: CGFloat = sessionCount > visibleCount ? 20 : 0
-    return CGSize(width: 360, height: 20 + CGFloat(visibleCount) * 28 + overflowHeight)
+    let visibleCount = min(max(0, sessionCount), maximumVisibleSessionCount)
+    let rowSpacing = CGFloat(max(0, visibleCount - 1)) * sessionRowSpacing
+    return CGSize(
+      width: expandedInformationWidth,
+      height: sessionListVerticalPadding + CGFloat(visibleCount) * sessionRowHeight + rowSpacing
+        + actionBarHeight
+    )
+  }
+
+  static func expandedInformationSize(
+    sessionCount: Int,
+    showsCurrentWork: Bool,
+    showsIntegrationAlerts: Bool,
+    showsOfficialUsage: Bool,
+    showsAPICostEstimate: Bool,
+    showsForecast: Bool,
+    showsBilling: Bool
+  ) -> CGSize {
+    let visibleCount =
+      showsCurrentWork
+      ? min(max(0, sessionCount), maximumVisibleSessionCount)
+      : 0
+    let sessionSpacing = CGFloat(max(0, visibleCount - 1)) * sessionRowSpacing
+    let sessionHeight =
+      visibleCount == 0
+      ? 0
+      : sessionListVerticalPadding + CGFloat(visibleCount) * sessionRowHeight + sessionSpacing
+    let estimatedInformationHeight =
+      (showsCurrentWork ? informationHeaderHeight : 0)
+      + (showsOfficialUsage ? 116 : 0)
+      + (showsAPICostEstimate ? 38 : 0)
+      + (showsForecast ? 38 : 0)
+      + (showsBilling ? 42 : 0)
+      + sessionHeight
+    let minimumInformationHeight: CGFloat = showsIntegrationAlerts ? 80 : 0
+    return CGSize(
+      width: expandedInformationWidth,
+      height: max(estimatedInformationHeight, minimumInformationHeight) + actionBarHeight
+    )
+  }
+
+  static var maximumSessionViewportHeight: CGFloat {
+    CGFloat(maximumVisibleSessionCount) * sessionRowHeight
+      + CGFloat(maximumVisibleSessionCount - 1) * sessionRowSpacing
   }
 
   static func approvalSize(for request: ApprovalRequest) -> CGSize {

@@ -54,7 +54,8 @@ final class SettingsStore {
     static let approvalTimeout = "approvalTimeout"
     static let autoExpandApprovals = "autoExpandApprovals"
     static let capsLockEnabled = "capsLockEnabled"
-    static let showOnNonNotch = "showOnNonNotch"
+    static let legacyShowOnNonNotch = "showOnNonNotch"
+    static let presentationPreference = "presentationPreference"
     static let preferredDisplay = "preferredDisplay"
     static let reducedAnimation = "reducedAnimation"
     static let automaticUpdateChecks = "automaticUpdateChecks"
@@ -64,6 +65,17 @@ final class SettingsStore {
     static let apiCostWindow = "apiCostWindow"
     static let showResetForecast = "showResetForecast"
     static let usageMetricPreference = "usageMetricPreference"
+    static let showFiveHourQuotaWindow = "showFiveHourQuotaWindow"
+    static let showWeeklyQuotaWindow = "showWeeklyQuotaWindow"
+    static let showSparkQuotaWindow = "showSparkQuotaWindow"
+    static let notchLeftWingMetric = "notchLeftWingMetric"
+    static let notchSecondaryMetric = "notchSecondaryMetric"
+    static let showNotchCurrentWork = "showNotchCurrentWork"
+    static let showNotchIntegrationAlerts = "showNotchIntegrationAlerts"
+    static let showNotchCodexUsage = "showNotchCodexUsage"
+    static let showNotchAPICostEstimate = "showNotchAPICostEstimate"
+    static let showNotchResetForecast = "showNotchResetForecast"
+    static let showNotchProviderBilling = "showNotchProviderBilling"
     static let menuBarPresentation = "menuBarPresentation"
     static let selectedProviderAccountID = "selectedProviderAccountID"
     static let onboardingComplete = "onboardingComplete"
@@ -73,9 +85,15 @@ final class SettingsStore {
   static let allKeys = [
     Key.showChatNames, Key.showPromptPreviews, Key.showResultPreviews, Key.completionVisibility,
     Key.approvalTimeout, Key.autoExpandApprovals, Key.capsLockEnabled,
-    Key.showOnNonNotch, Key.preferredDisplay, Key.reducedAnimation,
+    Key.legacyShowOnNonNotch, Key.presentationPreference, Key.preferredDisplay,
+    Key.reducedAnimation,
     Key.automaticUpdateChecks, Key.automaticUpdateDownloads, Key.showCodexUsage,
     Key.showAPICostEstimate, Key.apiCostWindow, Key.showResetForecast, Key.usageMetricPreference,
+    Key.showFiveHourQuotaWindow, Key.showWeeklyQuotaWindow, Key.showSparkQuotaWindow,
+    Key.notchLeftWingMetric, Key.notchSecondaryMetric,
+    Key.showNotchCurrentWork, Key.showNotchIntegrationAlerts,
+    Key.showNotchCodexUsage, Key.showNotchAPICostEstimate, Key.showNotchResetForecast,
+    Key.showNotchProviderBilling,
     Key.menuBarPresentation,
     Key.selectedProviderAccountID, Key.onboardingComplete, Key.integrationIntentionallyRemoved,
   ]
@@ -103,7 +121,9 @@ final class SettingsStore {
   var capsLockEnabled: Bool {
     didSet { defaults.set(capsLockEnabled, forKey: Key.capsLockEnabled) }
   }
-  var showOnNonNotch: Bool { didSet { defaults.set(showOnNonNotch, forKey: Key.showOnNonNotch) } }
+  var presentationPreference: PresentationPreference {
+    didSet { defaults.set(presentationPreference.rawValue, forKey: Key.presentationPreference) }
+  }
   var preferredDisplay: PreferredDisplay {
     didSet { defaults.set(preferredDisplay.rawValue, forKey: Key.preferredDisplay) }
   }
@@ -130,6 +150,39 @@ final class SettingsStore {
   }
   var usageMetricPreference: UsageMetricPreference {
     didSet { defaults.set(usageMetricPreference.rawValue, forKey: Key.usageMetricPreference) }
+  }
+  var showFiveHourQuotaWindow: Bool {
+    didSet { defaults.set(showFiveHourQuotaWindow, forKey: Key.showFiveHourQuotaWindow) }
+  }
+  var showWeeklyQuotaWindow: Bool {
+    didSet { defaults.set(showWeeklyQuotaWindow, forKey: Key.showWeeklyQuotaWindow) }
+  }
+  var showSparkQuotaWindow: Bool {
+    didSet { defaults.set(showSparkQuotaWindow, forKey: Key.showSparkQuotaWindow) }
+  }
+  var notchLeftWingMetric: NotchWingMetric {
+    didSet { defaults.set(notchLeftWingMetric.rawValue, forKey: Key.notchLeftWingMetric) }
+  }
+  var notchSecondaryMetric: NotchWingMetric {
+    didSet { defaults.set(notchSecondaryMetric.rawValue, forKey: Key.notchSecondaryMetric) }
+  }
+  var showNotchCurrentWork: Bool {
+    didSet { defaults.set(showNotchCurrentWork, forKey: Key.showNotchCurrentWork) }
+  }
+  var showNotchIntegrationAlerts: Bool {
+    didSet { defaults.set(showNotchIntegrationAlerts, forKey: Key.showNotchIntegrationAlerts) }
+  }
+  var showNotchCodexUsage: Bool {
+    didSet { defaults.set(showNotchCodexUsage, forKey: Key.showNotchCodexUsage) }
+  }
+  var showNotchAPICostEstimate: Bool {
+    didSet { defaults.set(showNotchAPICostEstimate, forKey: Key.showNotchAPICostEstimate) }
+  }
+  var showNotchResetForecast: Bool {
+    didSet { defaults.set(showNotchResetForecast, forKey: Key.showNotchResetForecast) }
+  }
+  var showNotchProviderBilling: Bool {
+    didSet { defaults.set(showNotchProviderBilling, forKey: Key.showNotchProviderBilling) }
   }
   var menuBarPresentation: MenuBarPresentation {
     didSet { defaults.set(menuBarPresentation.rawValue, forKey: Key.menuBarPresentation) }
@@ -162,7 +215,6 @@ final class SettingsStore {
       Key.approvalTimeout: 60.0,
       Key.autoExpandApprovals: true,
       Key.capsLockEnabled: false,
-      Key.showOnNonNotch: true,
       Key.preferredDisplay: PreferredDisplay.automatic.rawValue,
       Key.reducedAnimation: false,
       Key.automaticUpdateChecks: true,
@@ -172,7 +224,18 @@ final class SettingsStore {
       Key.apiCostWindow: APICostWindow.last30Days.rawValue,
       Key.showResetForecast: false,
       Key.usageMetricPreference: UsageMetricPreference.remaining.rawValue,
-      Key.menuBarPresentation: MenuBarPresentation.iconAndDetails.rawValue,
+      Key.showFiveHourQuotaWindow: true,
+      Key.showWeeklyQuotaWindow: true,
+      Key.showSparkQuotaWindow: true,
+      Key.notchLeftWingMetric: NotchWingMetric.quotaPercentage.rawValue,
+      Key.notchSecondaryMetric: NotchWingMetric.blank.rawValue,
+      Key.showNotchCurrentWork: true,
+      Key.showNotchIntegrationAlerts: true,
+      Key.showNotchCodexUsage: true,
+      Key.showNotchAPICostEstimate: true,
+      Key.showNotchResetForecast: true,
+      Key.showNotchProviderBilling: true,
+      Key.menuBarPresentation: MenuBarPresentation.percentageOnly.rawValue,
       Key.onboardingComplete: false,
       Key.integrationIntentionallyRemoved: false,
     ])
@@ -186,7 +249,11 @@ final class SettingsStore {
     approvalTimeout = max(5, min(60, defaults.double(forKey: Key.approvalTimeout)))
     autoExpandApprovals = defaults.bool(forKey: Key.autoExpandApprovals)
     capsLockEnabled = defaults.bool(forKey: Key.capsLockEnabled)
-    showOnNonNotch = defaults.bool(forKey: Key.showOnNonNotch)
+    let storedPresentation = defaults.string(forKey: Key.presentationPreference)
+      .flatMap(PresentationPreference.init(rawValue:))
+    let legacyShowOnNonNotch = defaults.object(forKey: Key.legacyShowOnNonNotch) as? Bool
+    presentationPreference =
+      storedPresentation ?? (legacyShowOnNonNotch == false ? .menuBar : .automatic)
     preferredDisplay =
       PreferredDisplay(rawValue: defaults.string(forKey: Key.preferredDisplay) ?? "") ?? .automatic
     reducedAnimation = defaults.bool(forKey: Key.reducedAnimation)
@@ -200,13 +267,29 @@ final class SettingsStore {
     usageMetricPreference =
       UsageMetricPreference(rawValue: defaults.string(forKey: Key.usageMetricPreference) ?? "")
       ?? .remaining
+    showFiveHourQuotaWindow = defaults.bool(forKey: Key.showFiveHourQuotaWindow)
+    showWeeklyQuotaWindow = defaults.bool(forKey: Key.showWeeklyQuotaWindow)
+    showSparkQuotaWindow = defaults.bool(forKey: Key.showSparkQuotaWindow)
+    notchLeftWingMetric =
+      NotchWingMetric(rawValue: defaults.string(forKey: Key.notchLeftWingMetric) ?? "")
+      ?? .quotaPercentage
+    notchSecondaryMetric =
+      NotchWingMetric(rawValue: defaults.string(forKey: Key.notchSecondaryMetric) ?? "")
+      ?? .blank
+    showNotchCurrentWork = defaults.bool(forKey: Key.showNotchCurrentWork)
+    showNotchIntegrationAlerts = defaults.bool(forKey: Key.showNotchIntegrationAlerts)
+    showNotchCodexUsage = defaults.bool(forKey: Key.showNotchCodexUsage)
+    showNotchAPICostEstimate = defaults.bool(forKey: Key.showNotchAPICostEstimate)
+    showNotchResetForecast = defaults.bool(forKey: Key.showNotchResetForecast)
+    showNotchProviderBilling = defaults.bool(forKey: Key.showNotchProviderBilling)
     menuBarPresentation =
       MenuBarPresentation(rawValue: defaults.string(forKey: Key.menuBarPresentation) ?? "")
-      ?? .iconAndDetails
+      ?? .percentageOnly
     selectedProviderAccountID = defaults.string(forKey: Key.selectedProviderAccountID).flatMap(
       UUID.init)
     onboardingComplete = defaults.bool(forKey: Key.onboardingComplete)
     integrationIntentionallyRemoved = defaults.bool(forKey: Key.integrationIntentionallyRemoved)
+    defaults.set(presentationPreference.rawValue, forKey: Key.presentationPreference)
   }
 
   func reset() {
@@ -221,7 +304,7 @@ final class SettingsStore {
     approvalTimeout = replacement.approvalTimeout
     autoExpandApprovals = replacement.autoExpandApprovals
     capsLockEnabled = replacement.capsLockEnabled
-    showOnNonNotch = replacement.showOnNonNotch
+    presentationPreference = replacement.presentationPreference
     preferredDisplay = replacement.preferredDisplay
     reducedAnimation = replacement.reducedAnimation
     automaticUpdateChecks = replacement.automaticUpdateChecks
@@ -231,6 +314,17 @@ final class SettingsStore {
     apiCostWindow = replacement.apiCostWindow
     showResetForecast = replacement.showResetForecast
     usageMetricPreference = replacement.usageMetricPreference
+    showFiveHourQuotaWindow = replacement.showFiveHourQuotaWindow
+    showWeeklyQuotaWindow = replacement.showWeeklyQuotaWindow
+    showSparkQuotaWindow = replacement.showSparkQuotaWindow
+    notchLeftWingMetric = replacement.notchLeftWingMetric
+    notchSecondaryMetric = replacement.notchSecondaryMetric
+    showNotchCurrentWork = replacement.showNotchCurrentWork
+    showNotchIntegrationAlerts = replacement.showNotchIntegrationAlerts
+    showNotchCodexUsage = replacement.showNotchCodexUsage
+    showNotchAPICostEstimate = replacement.showNotchAPICostEstimate
+    showNotchResetForecast = replacement.showNotchResetForecast
+    showNotchProviderBilling = replacement.showNotchProviderBilling
     menuBarPresentation = replacement.menuBarPresentation
     selectedProviderAccountID = replacement.selectedProviderAccountID
     onboardingComplete = replacement.onboardingComplete
