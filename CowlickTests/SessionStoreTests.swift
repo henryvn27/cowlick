@@ -695,23 +695,23 @@ final class SessionStoreTests: XCTestCase {
     XCTAssertNil(store.displaySession)
   }
 
-  func testCapsLockAttentionPersistsUntilCompletedThreadIsViewed() async {
+  func testCompletionFlashesEachNewlyFinishedThreadUsingConfiguredCount() async {
     let settings = makeTestSettings()
     settings.capsLockEnabled = true
+    settings.capsLockFlashCount = 4
     let capsLock = RecordingCapsLockService()
     let store = SessionStore(settings: settings, capsLockService: capsLock)
 
     _ = await store.receive(makeBridgeEvent(event: .completed, sessionID: "one"))
     _ = await store.receive(makeBridgeEvent(event: .completed, sessionID: "two"))
-    await Task.yield()
-
-    var snapshot = await capsLock.snapshot()
-    XCTAssertEqual(snapshot.0, [.completion])
-    store.expand()
     try? await Task.sleep(for: .milliseconds(50))
 
-    snapshot = await capsLock.snapshot()
-    XCTAssertEqual(snapshot.1, 1)
+    let snapshot = await capsLock.snapshot()
+    XCTAssertEqual(snapshot.0, [.completion(flashes: 4), .completion(flashes: 4)])
+    store.expand()
+    try? await Task.sleep(for: .milliseconds(20))
+    let expandedSnapshot = await capsLock.snapshot()
+    XCTAssertEqual(expandedSnapshot.1, 0)
   }
 
   func testCompletionResultPreviewIsStoredAndRenderedWhenEnabled() async {

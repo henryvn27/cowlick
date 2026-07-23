@@ -56,15 +56,15 @@ final class CapsLockSignalTests: XCTestCase {
     XCTAssertEqual(reportedSupport, .unavailable(reason))
   }
 
-  func testCompletionPersistsUntilAttentionClearsThenRestoresOriginalOffState() async {
+  func testCompletionFlashesRequestedCountThenRestoresOriginalOffState() async {
     let controller = FakeCapsLockController(initialState: false)
     let service = NativeCapsLockSignalService(controller: controller)
-    await service.setPersistentAttention(.completion)
+    await service.start(.completion(flashes: 3))
+    try? await Task.sleep(for: .milliseconds(800))
 
-    XCTAssertTrue(controller.state)
-    await service.setPersistentAttention(nil)
     XCTAssertFalse(controller.state)
-    XCTAssertEqual(controller.recordedWrites, [true, false])
+    XCTAssertEqual(controller.recordedWrites.filter { $0 }.count, 3)
+    XCTAssertEqual(controller.recordedWrites.last, false)
   }
 
   func testApprovalPersistsInvertedAndCancellationRestoresOriginalOnState() async {
@@ -82,7 +82,7 @@ final class CapsLockSignalTests: XCTestCase {
   func testPersistentAttentionWinsOverFailurePulse() async {
     let controller = FakeCapsLockController(initialState: false)
     let service = NativeCapsLockSignalService(controller: controller)
-    await service.setPersistentAttention(.completion)
+    await service.setPersistentAttention(.approval)
     await service.start(.failure)
     try? await Task.sleep(for: .milliseconds(300))
 
@@ -93,7 +93,7 @@ final class CapsLockSignalTests: XCTestCase {
   func testSuccessfulSelfTestReappliesPersistentAttention() async {
     let controller = FakeCapsLockController(initialState: false)
     let service = NativeCapsLockSignalService(controller: controller)
-    await service.setPersistentAttention(.completion)
+    await service.setPersistentAttention(.approval)
 
     let result = await service.testSignal()
 

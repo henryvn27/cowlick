@@ -293,6 +293,13 @@ struct SettingsView: View {
               get: { settings.capsLockEnabled },
               set: { value in setCapsLockEnabled(value) }
             ))
+          Stepper(
+            "Completion flashes: \(settings.capsLockFlashCount)",
+            value: $settings.capsLockFlashCount,
+            in: CapsLockPattern.completionFlashCountRange
+          )
+          .disabled(!settings.capsLockEnabled)
+          .accessibilityIdentifier("settings-caps-lock-flash-count")
           LabeledContent("Support", value: capsStatus)
           Button("Test Caps Lock Signal") {
             Task {
@@ -303,7 +310,7 @@ struct SettingsView: View {
           }
           .disabled(!settings.capsLockEnabled)
           Text(
-            "Native HID control may require Input Monitoring or Accessibility permission. Cowlick never leaves Caps Lock changed after a pattern."
+            "Completion alerts flash and restore your original Caps Lock state. Approval alerts stay inverted only while Cowlick is waiting for you. Native HID control may require Input Monitoring or Accessibility permission."
           )
           .font(.caption)
           .foregroundStyle(.secondary)

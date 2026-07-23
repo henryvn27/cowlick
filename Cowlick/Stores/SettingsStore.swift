@@ -54,6 +54,7 @@ final class SettingsStore {
     static let approvalTimeout = "approvalTimeout"
     static let autoExpandApprovals = "autoExpandApprovals"
     static let capsLockEnabled = "capsLockEnabled"
+    static let capsLockFlashCount = "capsLockFlashCount"
     static let legacyShowOnNonNotch = "showOnNonNotch"
     static let presentationPreference = "presentationPreference"
     static let preferredDisplay = "preferredDisplay"
@@ -84,7 +85,7 @@ final class SettingsStore {
 
   static let allKeys = [
     Key.showChatNames, Key.showPromptPreviews, Key.showResultPreviews, Key.completionVisibility,
-    Key.approvalTimeout, Key.autoExpandApprovals, Key.capsLockEnabled,
+    Key.approvalTimeout, Key.autoExpandApprovals, Key.capsLockEnabled, Key.capsLockFlashCount,
     Key.legacyShowOnNonNotch, Key.presentationPreference, Key.preferredDisplay,
     Key.reducedAnimation,
     Key.automaticUpdateChecks, Key.automaticUpdateDownloads, Key.showCodexUsage,
@@ -99,7 +100,6 @@ final class SettingsStore {
   ]
 
   private let defaults: UserDefaults
-
   var showChatNames: Bool {
     didSet { defaults.set(showChatNames, forKey: Key.showChatNames) }
   }
@@ -120,6 +120,9 @@ final class SettingsStore {
   }
   var capsLockEnabled: Bool {
     didSet { defaults.set(capsLockEnabled, forKey: Key.capsLockEnabled) }
+  }
+  var capsLockFlashCount: Int {
+    didSet { defaults.set(capsLockFlashCount, forKey: Key.capsLockFlashCount) }
   }
   var presentationPreference: PresentationPreference {
     didSet { defaults.set(presentationPreference.rawValue, forKey: Key.presentationPreference) }
@@ -215,6 +218,7 @@ final class SettingsStore {
       Key.approvalTimeout: 60.0,
       Key.autoExpandApprovals: true,
       Key.capsLockEnabled: false,
+      Key.capsLockFlashCount: 10,
       Key.preferredDisplay: PreferredDisplay.automatic.rawValue,
       Key.reducedAnimation: false,
       Key.automaticUpdateChecks: true,
@@ -249,6 +253,11 @@ final class SettingsStore {
     approvalTimeout = max(5, min(60, defaults.double(forKey: Key.approvalTimeout)))
     autoExpandApprovals = defaults.bool(forKey: Key.autoExpandApprovals)
     capsLockEnabled = defaults.bool(forKey: Key.capsLockEnabled)
+    capsLockFlashCount = min(
+      max(
+        defaults.integer(forKey: Key.capsLockFlashCount),
+        CapsLockPattern.completionFlashCountRange.lowerBound),
+      CapsLockPattern.completionFlashCountRange.upperBound)
     let storedPresentation = defaults.string(forKey: Key.presentationPreference)
       .flatMap(PresentationPreference.init(rawValue:))
     let legacyShowOnNonNotch = defaults.object(forKey: Key.legacyShowOnNonNotch) as? Bool
@@ -304,6 +313,7 @@ final class SettingsStore {
     approvalTimeout = replacement.approvalTimeout
     autoExpandApprovals = replacement.autoExpandApprovals
     capsLockEnabled = replacement.capsLockEnabled
+    capsLockFlashCount = replacement.capsLockFlashCount
     presentationPreference = replacement.presentationPreference
     preferredDisplay = replacement.preferredDisplay
     reducedAnimation = replacement.reducedAnimation

@@ -285,9 +285,18 @@ final class CowlickUITests: XCTestCase {
     systemTab.click()
 
     XCTAssertTrue(app.staticTexts["Caps Lock signal"].waitForExistence(timeout: 3))
+    XCTAssertTrue(
+      app.descendants(matching: .any)
+        .matching(identifier: "settings-caps-lock-flash-count").firstMatch
+        .waitForExistence(timeout: 3))
     XCTAssertTrue(app.staticTexts["Updates"].exists)
     XCTAssertTrue(app.buttons["Run Diagnostics"].exists)
     XCTAssertTrue(app.buttons["Reset App State"].exists)
+
+    let screenshot = XCTAttachment(screenshot: app.windows.firstMatch.screenshot())
+    screenshot.name = "system-settings-caps-lock-flashes"
+    screenshot.lifetime = .keepAlways
+    add(screenshot)
   }
 
   func testDiagnosticsOpens() {

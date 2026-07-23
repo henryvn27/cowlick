@@ -735,6 +735,10 @@ final class SessionStore {
     session.completionVisibleUntil = visibleUntil
     sessions[event.sessionId] = session
     if shouldSignal { unreadCompletionSessionIDs.insert(event.sessionId) }
+    if shouldSignal, settings.capsLockEnabled {
+      let flashCount = settings.capsLockFlashCount
+      Task { await capsLockService.start(.completion(flashes: flashCount)) }
+    }
     isExpanded = false
 
     if let visibility {
@@ -1046,8 +1050,6 @@ final class SessionStore {
     let desiredPattern: CapsLockPattern? =
       if settings.capsLockEnabled, currentApproval != nil {
         .approval
-      } else if settings.capsLockEnabled, !unreadCompletionSessionIDs.isEmpty {
-        .completion
       } else {
         nil
       }

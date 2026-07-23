@@ -4,7 +4,9 @@ import IOKit
 import IOKit.hidsystem
 
 enum CapsLockPattern: Sendable, Equatable {
-  case completion
+  static let completionFlashCountRange = 1...20
+
+  case completion(flashes: Int)
   case approval
   case failure
 }
@@ -174,7 +176,7 @@ actor NativeCapsLockSignalService: CapsLockSignalService {
   }
 
   func start(_ pattern: CapsLockPattern) {
-    if pattern == .approval || pattern == .completion {
+    if pattern == .approval {
       setPersistentAttention(pattern)
       return
     }
@@ -229,11 +231,20 @@ actor NativeCapsLockSignalService: CapsLockSignalService {
     guard originalState != nil else { return }
 
     switch pattern {
+    case .completion(let flashes):
+      let flashCount = min(
+        max(1, flashes), CapsLockPattern.completionFlashCountRange.upperBound)
+      for index in 0..<flashCount {
+        guard !Task.isCancelled else { return }
+        await pulse(
+          on: .milliseconds(105),
+          off: index == flashCount - 1 ? .zero : .milliseconds(115))
+      }
     case .failure:
       await pulse(on: .milliseconds(105), off: .milliseconds(115))
       guard !Task.isCancelled else { return }
       await pulse(on: .milliseconds(105), off: .zero)
-    case .approval, .completion:
+    case .approval:
       break
     }
   }
