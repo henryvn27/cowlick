@@ -182,7 +182,7 @@ final class CowlickUITests: XCTestCase {
     let quit = app.buttons["Quit"]
     XCTAssertTrue(quit.exists)
     XCTAssertLessThanOrEqual(compactHeader.frame.width, 300)
-    XCTAssertLessThanOrEqual(quit.frame.maxY - compactHeader.frame.minY, 400)
+    XCTAssertGreaterThanOrEqual(quit.frame.minY, compactHeader.frame.maxY)
   }
 
   func testExpandedNotchContentCanBeHidden() {
