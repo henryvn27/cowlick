@@ -26,6 +26,7 @@ final class SettingsStoreTests: XCTestCase {
     XCTAssertFalse(first.showPromptPreviews)
     XCTAssertFalse(first.showResultPreviews)
     XCTAssertFalse(first.capsLockEnabled)
+    XCTAssertEqual(first.capsLockFlashCount, 10)
     XCTAssertTrue(first.automaticUpdateChecks)
     XCTAssertTrue(first.showCodexUsage)
     XCTAssertFalse(first.showAPICostEstimate)
@@ -48,6 +49,7 @@ final class SettingsStoreTests: XCTestCase {
     XCTAssertFalse(first.integrationIntentionallyRemoved)
     first.showPromptPreviews = true
     first.showChatNames = false
+    first.capsLockFlashCount = 6
     first.approvalTimeout = 35
     first.usageMetricPreference = .used
     first.showFiveHourQuotaWindow = false
@@ -70,6 +72,7 @@ final class SettingsStoreTests: XCTestCase {
     let second = SettingsStore(defaults: defaults)
     XCTAssertFalse(second.showChatNames)
     XCTAssertTrue(second.showPromptPreviews)
+    XCTAssertEqual(second.capsLockFlashCount, 6)
     XCTAssertEqual(second.approvalTimeout, 35)
     XCTAssertEqual(second.usageMetricPreference, .used)
     XCTAssertFalse(second.showFiveHourQuotaWindow)
@@ -96,6 +99,7 @@ final class SettingsStoreTests: XCTestCase {
     settings.showPromptPreviews = true
     settings.showResultPreviews = true
     settings.capsLockEnabled = true
+    settings.capsLockFlashCount = 3
     settings.showCodexUsage = false
     settings.showAPICostEstimate = false
     settings.apiCostWindow = .monthToDate
@@ -120,6 +124,7 @@ final class SettingsStoreTests: XCTestCase {
     XCTAssertFalse(settings.showPromptPreviews)
     XCTAssertFalse(settings.showResultPreviews)
     XCTAssertFalse(settings.capsLockEnabled)
+    XCTAssertEqual(settings.capsLockFlashCount, 10)
     XCTAssertTrue(settings.showCodexUsage)
     XCTAssertFalse(settings.showAPICostEstimate)
     XCTAssertEqual(settings.apiCostWindow, .last30Days)

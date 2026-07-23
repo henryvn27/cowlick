@@ -409,7 +409,7 @@ final class CodexSessionObserverTests: XCTestCase {
     try await Task.sleep(for: .milliseconds(50))
 
     let patterns = await capsLock.snapshot().0
-    XCTAssertEqual(patterns.filter { $0 == .completion }.count, 1)
+    XCTAssertEqual(patterns.filter { $0 == .completion(flashes: 10) }.count, 1)
   }
 
   @MainActor
