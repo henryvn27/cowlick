@@ -1,18 +1,55 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "capturedAt": "2026-07-22",
-  "branch": "main",
   "sourceCommit": "287afff0391b2c4a7fa172acc5558ab68b2766e2",
+  "capturedSourceCommit": "287afff0391b2c4a7fa172acc5558ab68b2766e2",
+  "capturedAppExecutableSHA256": "213adf966e7fe5a77e23700d94ce997d35e19103c9e0931d0c70d53e3bcf972d",
+  "capturedHelperExecutableSHA256": "7dabfd9ca96b9039b88555db60f316c794ee8563ce332aeff1f4f2ab3ed1ad79",
+  "revalidatedAt": "2026-07-23",
+  "revalidatedBranch": "origin/main",
+  "revalidatedSourceCommit": "2fc8c7222a6a4ac9806c151c82602d2b1d9a61e0",
   "installedApp": "/Users/henry/Applications/Cowlick.app",
   "bundleIdentifier": "com.henryvn27.Cowlick",
   "marketingVersion": "1.0.0",
   "buildVersion": "1",
-  "appExecutableSHA256": "213adf966e7fe5a77e23700d94ce997d35e19103c9e0931d0c70d53e3bcf972d",
-  "helperExecutableSHA256": "7dabfd9ca96b9039b88555db60f316c794ee8563ce332aeff1f4f2ab3ed1ad79",
+  "revalidatedAppExecutableSHA256": "1b93eb32b2106c12f86a6406f329bdbe495821cf44ad20f98d8b25eeef1f4034",
+  "revalidatedHelperExecutableSHA256": "050f98830eae83e47cc9f31fbfad6b5faf153394b66d9660bb430a12b0fba424",
   "display": {
     "backingScale": 2,
     "safeAreaTopPoints": 32,
     "evidence": "physical-notch display"
+  },
+  "sourceComparison": {
+    "range": "287afff0391b2c4a7fa172acc5558ab68b2766e2..2fc8c7222a6a4ac9806c151c82602d2b1d9a61e0",
+    "productionFilesChanged": [
+      "Cowlick/Models/UsagePlanning.swift"
+    ],
+    "materialPublicationImpact": false,
+    "evidence": "The final candidate exposes pace balance during the opening 3% of a quota window and returns measuring for an opening-window runway. The deterministic usage fixture is outside that interval; approval and session presentation source did not change."
+  },
+  "renderComparison": {
+    "hostAppearance": "Light (default)",
+    "retainedUsageAppearance": "Dark",
+    "dynamicAppearanceSources": [
+      "Cowlick/Support/NotchTheme.swift",
+      "Cowlick/Views/NotchRootView.swift"
+    ],
+    "approval": {
+      "finalCandidateSHA256": "2a875399e49ff3f9357808e512c502191c9bd565e6904de47bed31bad7bb454f",
+      "result": "pixel-and-byte-identical"
+    },
+    "multiSession": {
+      "finalCandidateSHA256": "5ebd3551a7cdc66d36b0c141096a90f409fa4601e23e837f13ea12514470b2c1",
+      "changedPixels": 374,
+      "totalPixels": 181844,
+      "changedPixelPercent": 0.2057,
+      "result": "content-and-geometry-identical; animated activity spinners sampled at a different frame"
+    },
+    "usage": {
+      "finalCandidateSHA256": "7494d5be0204af91bcb26500b73b9b2a281c86119c6c07d78c0a4ad8bf4082bc",
+      "result": "content-and-geometry-identical; final-candidate verification rendered the documented dynamic floating window in Light appearance"
+    },
+    "publicationDecision": "Retain the existing deterministic screenshots; no material UI change requires replacement."
   },
   "recommendedScreenshots": [
     {

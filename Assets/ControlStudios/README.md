@@ -1,10 +1,39 @@
 # Control Studios website asset handoff
 
 These assets were captured on July 22, 2026 from the installed Cowlick 1.0.0
-binary whose embedded source identity is
-`287afff0391b2c4a7fa172acc5558ab68b2766e2` (`main`). The 2x PNG captures ran
-on a MacBook display with a measured 32-point top safe-area inset. They are
-physical-notch-display evidence, not fallback-island mockups.
+binary whose embedded source identity was
+`287afff0391b2c4a7fa172acc5558ab68b2766e2`. They were revalidated on July 23
+against the installed final-candidate binary and protected `origin/main`, both
+at `2fc8c7222a6a4ac9806c151c82602d2b1d9a61e0`. The source and rendered
+comparison found no material publication change, so the approved pixels remain
+intentionally unchanged.
+
+The 2x PNG captures ran on a MacBook display with a measured 32-point top
+safe-area inset. They are physical-notch-display evidence, not fallback-island
+mockups.
+
+## Final-candidate revalidation
+
+The only production-source change from the capture commit to the final
+candidate is `Cowlick/Models/UsagePlanning.swift`. It keeps pace metrics visible
+during the opening 3% of a quota window and reports projected runway as
+`measuring` until a forecast is reliable. The deterministic usage fixture is
+well beyond that opening interval, so its displayed content is unaffected.
+Approval and session presentation source did not change.
+
+A fresh ten-surface render from the installed final candidate confirmed:
+
+- `approval.png` is pixel- and byte-identical.
+- `multi-session.png` has identical content and geometry. Only 374 of 181,844
+  pixels (0.2057%) differed because the indeterminate activity spinners were
+  sampled at a different animation frame.
+- `usage.png` has identical content and geometry. The verification host was in
+  Light appearance, while the retained public asset was captured in Dark
+  appearance. Floating windows intentionally use dynamic macOS
+  `windowBackgroundColor`; neither appearance is hard-coded product styling.
+
+Exact source, executable, render, and comparison hashes are recorded in
+`capture-provenance.json`. Live quota, session, and cost values remain excluded.
 
 ## Recommended website screenshots
 
